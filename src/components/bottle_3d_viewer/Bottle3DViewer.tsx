@@ -797,6 +797,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const truckMeshRef = useRef<THREE.Group | null>(null);
   const lastRouteKeyRef = useRef<string>('');
   const hasSnappedRef = useRef<boolean>(false);
+  const navStartTimeRef = useRef<Date>(new Date());
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
 
   // references moved below vehiclePosition to avoid TDZ reference errors
@@ -2268,6 +2269,31 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     return { x, y, angle };
   }, [routeResult, navProgress, getNodeCoordinates, paths]);
 
+  // Accelerated simulated clock time based on truck navigation speed
+  const displayMobileTime = useMemo(() => {
+    const formatTime = (date: Date) => {
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const seconds = String(date.getSeconds()).padStart(2, '0');
+      return `${hours}:${minutes}:${seconds}`;
+    };
+
+    if (isNavigating && navStartTimeRef.current) {
+      const currentDist = routeResult ? (navProgress / 100) * routeResult.distance : 0;
+      const speedMps = navSpeed * 0.27778; // Convert km/h to m/s
+      const simElapsedSeconds = speedMps > 0 ? currentDist / speedMps : 0;
+      const simTime = new Date(navStartTimeRef.current.getTime() + simElapsedSeconds * 1000);
+      return formatTime(simTime);
+    }
+    
+    // Real time with seconds to look premium
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
+  }, [isNavigating, navProgress, navSpeed, routeResult]);
+
   // Keep state references for requestAnimationFrame loop without triggering re-effects
   const stateRef = useRef({
     color,
@@ -3092,7 +3118,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             <div style={styles.mobileScreen}>
               {/* Status Bar */}
               <div style={styles.statusBar}>
-                <span>{currentTime}</span>
+                <span>{displayMobileTime}</span>
                 <span style={{ fontSize: '10px' }}>📶 🔋</span>
               </div>
 
@@ -3253,6 +3279,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                           onClick={() => {
                             setMobileScreen('navigation');
                             setNavProgress(0);
+                            navStartTimeRef.current = new Date();
                             setIsNavigating(true);
                           }}
                           style={styles.appNavigateBtn}
@@ -3376,19 +3403,51 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '11px', color: '#94a3b8' }}>ESTIMATED ARRIVAL (ETA)</span>
-                        <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#ffffff' }}>
+                        <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#ffffff', fontFamily: 'monospace' }}>
                           {(() => {
-                            const now = new Date();
-                            const estMin = routeResult ? Math.max(1, Math.round(routeResult.distance / 45)) : 1;
-                            const etaTime = new Date(now.getTime() + (isNavigating ? estMin * (1 - navProgress/100) : 0) * 60000);
-                            return `${String(etaTime.getHours()).padStart(2, '0')}:${String(etaTime.getMinutes()).padStart(2, '0')}`;
+                            if (!routeResult || !navStartTimeRef.current) return '00:00:00';
+                            const totalTripDurationSeconds = routeResult.distance / (navSpeed * 0.27778);
+                            const simEtaTime = new Date(navStartTimeRef.current.getTime() + totalTripDurationSeconds * 1000);
+                            const hours = String(simEtaTime.getHours()).padStart(2, '0');
+                            const minutes = String(simEtaTime.getMinutes()).padStart(2, '0');
+                            const seconds = String(simEtaTime.getSeconds()).padStart(2, '0');
+                            return `${hours}:${minutes}:${seconds}`;
                           })()}
                         </span>
                       </div>
-                      <div style={{ display: 'flex', gap: '8px', fontSize: '12px', fontWeight: 600, color: '#38bdf8' }}>
-                        <span>{routeResult ? Math.max(1, Math.round((routeResult.distance / 45) * (1 - navProgress/100))) : 0} min remaining</span>
+                      <div style={{ display: 'flex', gap: '8px', fontSize: '12px', fontWeight: 600, color: '#38bdf8', fontFamily: 'monospace' }}>
+                        <span>
+                          {(() => {
+                            if (!routeResult) return '0:00 remaining';
+                            const distRemaining = routeResult.distance * (1 - navProgress/100);
+                            const simRemainingSeconds = navSpeed > 0 ? distRemaining / (navSpeed * 0.27778) : 0;
+                            const remMin = Math.floor(simRemainingSeconds / 60);
+                            const remSec = Math.round(simRemainingSeconds % 60);
+                            return `${remMin}:${String(remSec).padStart(2, '0')} remaining`;
+                          })()}
+                        </span>
                         <span>•</span>
                         <span>{routeResult ? (routeResult.distance * (1 - navProgress/100)).toFixed(1) : 0} m</span>
+                      </div>
+                    </div>
+
+                    {/* GPS Coordinates & Current Time details row */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #334155', paddingTop: '10px', marginTop: '4px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600 }}>GPS POSITION</span>
+                        <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8', fontFamily: 'monospace' }}>
+                          {(() => {
+                            const gpsLat = 10.756944 + (vehiclePosition.y / 111139);
+                            const gpsLng = 106.794444 + (vehiclePosition.x / 109183);
+                            return `${gpsLat.toFixed(6)}° N, ${gpsLng.toFixed(6)}° E`;
+                          })()}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                        <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600 }}>ACCELERATED CLOCK</span>
+                        <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#10b981', fontFamily: 'monospace' }}>
+                          {displayMobileTime}
+                        </span>
                       </div>
                     </div>
 
