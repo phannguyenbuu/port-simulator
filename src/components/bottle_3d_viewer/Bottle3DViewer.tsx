@@ -795,6 +795,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const obstaclesGroupRef = useRef<THREE.Group | null>(null);
   const pinObjRef = useRef<THREE.Group | null>(null);
   const truckMeshRef = useRef<THREE.Group | null>(null);
+  const lastRouteKeyRef = useRef<string>('');
+  const hasSnappedRef = useRef<boolean>(false);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
 
   // references moved below vehiclePosition to avoid TDZ reference errors
@@ -1337,6 +1339,43 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         const route = stateRef.current.routeResult;
         const vPos = stateRef.current.vehiclePosition;
         
+        // Check if route has changed to trigger 3D Zoom Fit
+        if (route && route.path.length >= 2) {
+          const routeKey = route.path.join('-');
+          if (lastRouteKeyRef.current !== routeKey) {
+            lastRouteKeyRef.current = routeKey;
+            
+            // Calculate bounding box of all coordinates in the route wayfinding path
+            const box = new THREE.Box3();
+            route.path.forEach(nodeId => {
+              const coords = getNodeCoordinates(nodeId);
+              box.expandByPoint(new THREE.Vector3(coords.y, 0.0, coords.x));
+            });
+            
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+            
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fovRad = (camera.fov * Math.PI) / 180;
+            let distance = maxDim / (2 * Math.tan(fovRad / 2));
+            distance *= 1.4; // 1.4x padding for clean fit
+            distance = Math.max(distance, 200); // keep a minimum distance
+            
+            // Get current camera look direction
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            
+            // Position camera along current direction from box center
+            controls.target.copy(center);
+            camera.position.copy(center).addScaledVector(dir, -distance);
+            controls.update();
+          }
+        } else {
+          lastRouteKeyRef.current = '';
+        }
+
         if (isNav && route && route.path.length >= 2) {
           truckMesh.visible = true;
           // Translate 2D map to 3D scene: X -> Z, Y -> X
@@ -1350,17 +1389,34 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           const rad = (90 - vPos.angle) * Math.PI / 180;
           truckMesh.rotation.y = rad;
           
-          // Camera follow mode: only lock target, do not lock rotation and zoom factor!
+          // Camera follow mode
           if (stateRef.current.cameraFollowTruck) {
             const targetX = truckX;
             const targetY = truckY;
             const targetZ = truckZ;
             
-            const targetDelta = new THREE.Vector3(targetX, targetY, targetZ).sub(controls.target);
-            camera.position.add(targetDelta);
-            controls.target.set(targetX, targetY, targetZ);
+            if (!hasSnappedRef.current) {
+              // First time starting navigation: zoom close and point forward along first segment!
+              const forwardX = Math.sin(rad);
+              const forwardZ = Math.cos(rad);
+              
+              const camX = targetX - forwardX * 60;
+              const camY = targetY + 45;
+              const camZ = targetZ - forwardZ * 60;
+              
+              camera.position.set(camX, camY, camZ);
+              controls.target.set(targetX, targetY, targetZ);
+              controls.update();
+              hasSnappedRef.current = true;
+            } else {
+              // Subsequently: only lock target, do not lock rotation/zoom (translate camera by target delta)
+              const targetDelta = new THREE.Vector3(targetX, targetY, targetZ).sub(controls.target);
+              camera.position.add(targetDelta);
+              controls.target.set(targetX, targetY, targetZ);
+            }
           }
         } else {
+          hasSnappedRef.current = false;
           // If not navigating but there is a route, put truck at starting node
           if (route && route.path.length > 0) {
             truckMesh.visible = true;
