@@ -708,6 +708,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const [visitNotes, setVisitNotes] = useState<string>('');
   const [isAudioMuted, setIsAudioMuted] = useState<boolean>(false);
   const sigCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const wayfindingGroupRef = useRef<THREE.Group | null>(null);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
 
   // Keep state references for requestAnimationFrame loop without triggering re-effects
@@ -1134,6 +1135,11 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
       mainGroup.add(routeGroup);
 
+      const wayfindingGroup = new THREE.Group();
+      wayfindingGroup.position.y = 1.1; // Float slightly above the roads
+      mainGroup.add(wayfindingGroup);
+      wayfindingGroupRef.current = wayfindingGroup;
+
       mainGroup.position.y = 0.0;
       scene.add(mainGroup);
       bottleMesh = mainGroup;
@@ -1213,6 +1219,15 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         bottleMesh.rotation.y += 0.01 * stateRef.current.autoRotateSpeed;
       }
 
+       // Animate wayfinding textures
+      if (wayfindingGroupRef.current) {
+        wayfindingGroupRef.current.children.forEach(child => {
+          if (child && (child as any).texture) {
+            (child as any).texture.offset.x -= 0.015;
+          }
+        });
+      }
+
       controls.update();
       renderer.render(scene, camera);
 
@@ -1243,6 +1258,14 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       lineMaterials.forEach(mat => {
         if (mat.resolution) mat.resolution.set(w, h);
       });
+      if (wayfindingGroupRef.current) {
+        wayfindingGroupRef.current.children.forEach(child => {
+          const mat = (child as any).material;
+          if (mat && mat.resolution) {
+            mat.resolution.set(w, h);
+          }
+        });
+      }
     };
     
     const resizeObserver = new ResizeObserver(() => {
@@ -1254,6 +1277,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     return () => {
       cancelAnimationFrame(animationFrameId);
       resizeObserver.disconnect();
+      wayfindingGroupRef.current = null;
       
       // Dispose materials & geometries
       bottleMaterial.dispose();
@@ -1293,6 +1317,108 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const routeResult = useMemo(() => {
     return findShortestPath(DEFAULT_NODES, paths, startNode, endNode);
   }, [paths, startNode, endNode]);
+
+  // Update wayfinding line in 3D scene when routeResult changes
+  useEffect(() => {
+    const wayfindingGroup = wayfindingGroupRef.current;
+    if (!wayfindingGroup) return;
+
+    // Clear existing wayfinding line
+    while (wayfindingGroup.children.length > 0) {
+      const child = wayfindingGroup.children[0];
+      if (child instanceof THREE.Mesh || (child as any).isLine2) {
+        child.geometry.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m: any) => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+      wayfindingGroup.remove(child);
+    }
+
+    if (!routeResult || routeResult.path.length < 2) return;
+
+    let isSubscribed = true;
+
+    // Dynamically load Line2 modules
+    Promise.all([
+      import('three/examples/jsm/lines/Line2.js'),
+      import('three/examples/jsm/lines/LineGeometry.js'),
+      import('three/examples/jsm/lines/LineMaterial.js')
+    ]).then(([line2Module, geometryModule, materialModule]) => {
+      if (!isSubscribed || !wayfindingGroupRef.current) return;
+
+      const { Line2 } = line2Module;
+      const { LineGeometry } = geometryModule;
+      const { LineMaterial } = materialModule;
+
+      const pointsCoords: number[] = [];
+      routeResult.path.forEach(nodeId => {
+        const coords = getNodeCoordinates(nodeId);
+        // Translate 2D map to 3D scene: X -> Z, Y -> X (matching road rendering)
+        pointsCoords.push(coords.y, 0, coords.x);
+      });
+
+      const geometry = new LineGeometry();
+      geometry.setPositions(pointsCoords);
+
+      // Create arrow pattern texture using HTML canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = 'rgba(0,0,0,0)';
+        ctx.fillRect(0, 0, 128, 32);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(10, 16);
+        ctx.lineTo(80, 16);
+        ctx.lineTo(80, 6);
+        ctx.lineTo(118, 16);
+        ctx.lineTo(80, 26);
+        ctx.lineTo(80, 16);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+
+      // Repeat texture based on path length
+      let totalLength = 0;
+      for (let i = 0; i < routeResult.path.length - 1; i++) {
+        const c1 = getNodeCoordinates(routeResult.path[i]);
+        const c2 = getNodeCoordinates(routeResult.path[i+1]);
+        totalLength += Math.hypot(c1.x - c2.x, c1.y - c2.y);
+      }
+      texture.repeat.set(Math.max(1, totalLength / 15), 1); // 1 arrow every 15 units
+
+      const container = mountRef.current;
+      const material = new LineMaterial({
+        color: 0xff0000, // Red animated path
+        map: texture,
+        useMap: true,
+        linewidth: 7, // Highly visible
+        transparent: true,
+        opacity: 0.95,
+        resolution: new THREE.Vector2(container ? container.clientWidth : 800, container ? container.clientHeight : 600)
+      });
+
+      const line = new Line2(geometry, material);
+      line.computeLineDistances();
+      wayfindingGroup.add(line);
+
+      (line as any).isWayfinding = true;
+      (line as any).texture = texture;
+    });
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [routeResult, getNodeCoordinates]);
 
   // Admin action handlers
 
@@ -1893,11 +2019,10 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
           {Object.values(DEFAULT_NODES).map(node => {
             if (!node) return null;
-            let fillVal = '#22c55e';
-            if (node.type === 'weigh_station') fillVal = '#eab308';
-            if (node.type === 'yard') fillVal = '#0284c7';
-            if (node.type === 'storage') fillVal = '#f97316';
-            if (node.type === 'pier') fillVal = '#a855f7';
+            const mapName = (node.name || '').toLowerCase();
+            const matchKey = Object.keys(materialsMap).find(k => mapName.includes(k.toLowerCase())) || 'gate';
+            const nodeColor = materialsMap[matchKey] || '#22c55e';
+            const fillVal = nodeColor;
 
             const actX = isMobile ? node.y : node.x;
             const actY = isMobile ? node.x : node.y;
@@ -1975,7 +2100,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                   align="center"
                   text={node.name.split(' (')[0]}
                   fontSize={10}
-                  fill={isSelectedNode ? '#3b82f6' : isMobile ? '#0f172a' : '#f8fafc'}
+                  fill={isSelectedNode ? '#3b82f6' : fillVal}
                   fontStyle="bold"
                 />
               </Group>
@@ -2153,7 +2278,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                       <span style={{ fontSize: '11px', color: '#94a3b8' }}>Distance:</span>
                       <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#38bdf8' }}>
-                        {routeResult ? routeResult.distance + ' m' : '---'}
+                        {routeResult ? routeResult.distance.toFixed(1) + ' m' : '---'}
                       </span>
                     </div>
                   </div>
@@ -2329,7 +2454,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                           <polyline
                             points={points.join(' ')}
                             fill="none"
-                            stroke="#38bdf8"
+                            stroke="#ff0000"
                             strokeWidth={5}
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -2338,16 +2463,18 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         );
                       })()}
 
-                      {/* Render nodes as small circles */}
                       {Object.values(DEFAULT_NODES).map(node => {
                         const isActive = routeResult?.path.includes(node.id);
+                        const mapName = (node.name || '').toLowerCase();
+                        const matchKey = Object.keys(materialsMap).find(k => mapName.includes(k.toLowerCase())) || 'gate';
+                        const nodeColor = materialsMap[matchKey] || '#64748b';
                         return (
                           <circle
                             key={node.id}
                             cx={node.x}
                             cy={node.y}
                             r={isActive ? 6 : 4}
-                            fill={node.id === startNode ? '#22c55e' : node.id === endNode ? '#ef4444' : '#64748b'}
+                            fill={node.id === startNode ? '#22c55e' : node.id === endNode ? '#ef4444' : nodeColor}
                             stroke="#000"
                             strokeWidth={1}
                           />
@@ -2419,7 +2546,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                       <div style={{ display: 'flex', gap: '8px', fontSize: '12px', fontWeight: 600, color: '#38bdf8' }}>
                         <span>Còn {routeResult ? Math.max(1, Math.round((routeResult.distance / 45) * (1 - navProgress/100))) : 0} phút</span>
                         <span>•</span>
-                        <span>{routeResult ? Math.round(routeResult.distance * (1 - navProgress/100)) : 0} m</span>
+                        <span>{routeResult ? (routeResult.distance * (1 - navProgress/100)).toFixed(1) : 0} m</span>
                       </div>
                     </div>
 
