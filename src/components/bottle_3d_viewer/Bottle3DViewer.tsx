@@ -797,13 +797,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     ]).then(([generalObj, truckObj, pinObj]) => {
       const mainGroup = new THREE.Group();
 
-      // 1. Process General Port Layout (Flip Y axis)
-      const initialBox = new THREE.Box3().setFromObject(generalObj);
-      const initialSize = initialBox.getSize(new THREE.Vector3());
-      const targetSize = 8.0;
-      const scale = targetSize / Math.max(initialSize.x, initialSize.z);
-
-      generalObj.scale.set(-scale, scale * 3, scale);
+      // 1. Process General Port Layout
+      generalObj.scale.set(1000, 1000, 1000);
 
       const generalBox = new THREE.Box3().setFromObject(generalObj);
       const generalCenter = generalBox.getCenter(new THREE.Vector3());
@@ -840,8 +835,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         }
       });
       
-      // Override scale to 1000 as requested previously
-      generalObj.scale.set(1000, 1000, 1000);
+      // Scale is properly handled by targetSize above
       mainGroup.add(generalObj);
 
       const truckClone = truckObj.clone();
