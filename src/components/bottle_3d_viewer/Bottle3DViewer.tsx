@@ -795,6 +795,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const obstaclesGroupRef = useRef<THREE.Group | null>(null);
   const pinObjRef = useRef<THREE.Group | null>(null);
   const truckMeshRef = useRef<THREE.Group | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const controlsRef = useRef<any | null>(null);
   const lastRouteKeyRef = useRef<string>('');
   const hasSnappedRef = useRef<boolean>(false);
   const navStartTimeRef = useRef<Date>(new Date());
@@ -1042,9 +1044,11 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     const camera = new THREE.PerspectiveCamera(40, width / height, 10.0, 5000);
     camera.position.set(1000, 1200, 1500);
+    cameraRef.current = camera;
 
     // 3. Orbit Controls
     const controls = new OrbitControls(camera, renderer.domElement);
+    controlsRef.current = controls;
     controls.target.set(0, 100, 0);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
@@ -1572,16 +1576,6 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                 }
               }
               
-              // If follow is checked, camera also centers on starting truck position
-              if (stateRef.current.cameraFollowTruck) {
-                const targetX = startCoords.y;
-                const targetY = 2.0;
-                const targetZ = startCoords.x;
-                
-                const targetDelta = new THREE.Vector3(targetX, targetY, targetZ).sub(controls.target);
-                camera.position.add(targetDelta);
-                controls.target.set(targetX, targetY, targetZ);
-              }
             }
           } else {
             truckMesh.visible = false;
@@ -1769,6 +1763,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       resizeObserver.disconnect();
       wayfindingGroupRef.current = null;
       obstaclesGroupRef.current = null;
+      cameraRef.current = null;
+      controlsRef.current = null;
       
       if (renderer.domElement) {
         if (handlePointerDown) renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
@@ -1907,6 +1903,67 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const handleResetZoom = useCallback(() => {
     setStageScale({ x: 1, y: 1 });
     setStagePos({ x: 0, y: 0 });
+  }, []);
+
+  // Camera toolbar control handlers
+  const handleMoveCamera = useCallback((direction: 'left' | 'right' | 'up' | 'down') => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+
+    if (direction === 'left' || direction === 'right') {
+      const right = new THREE.Vector3();
+      camera.matrix.extractBasis(right, new THREE.Vector3(), new THREE.Vector3());
+      const amount = direction === 'left' ? -30 : 30;
+      camera.position.addScaledVector(right, amount);
+      controls.target.addScaledVector(right, amount);
+    } else {
+      const up = new THREE.Vector3();
+      camera.matrix.extractBasis(new THREE.Vector3(), up, new THREE.Vector3());
+      const amount = direction === 'down' ? -30 : 30;
+      camera.position.addScaledVector(up, amount);
+      controls.target.addScaledVector(up, amount);
+    }
+    controls.update();
+  }, []);
+
+  const handleZoomCamera = useCallback((inOut: 'in' | 'out') => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const amount = inOut === 'in' ? 50 : -50;
+    camera.position.addScaledVector(dir, amount);
+    controls.update();
+  }, []);
+
+  const handleSetCornerView = useCallback((corner: 'NW' | 'NE' | 'SW' | 'SE') => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+
+    const camCoords = {
+      NW: { x: -1200, y: 1000, z: -1200 },
+      NE: { x: 1200, y: 1000, z: -1200 },
+      SW: { x: -1200, y: 1000, z: 1200 },
+      SE: { x: 1200, y: 1000, z: 1200 }
+    }[corner];
+
+    camera.position.set(camCoords.x, camCoords.y, camCoords.z);
+    controls.target.set(0, 0, 0);
+    controls.update();
+  }, []);
+
+  const handleSetPlanView = useCallback(() => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+
+    camera.position.set(0, 1800, 0.1);
+    controls.target.set(0, 0, 0);
+    controls.update();
   }, []);
 
   // Coordinate helper that resolves both base port nodes and temporary obstacle sub-segment nodes
@@ -3119,6 +3176,43 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               CAM: X: 0.00 Y: 1.20 Z: 4.00<br />
               TAR: X: 0.00 Y: 0.00 Z: 0.00
             </div>
+
+            {/* Vertical Camera Control Toolbar (Left Side) */}
+            <div style={{
+              position: 'absolute',
+              top: '80px',
+              left: '12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              zIndex: 10,
+            }}>
+              {/* Navigation Controls */}
+              <button onClick={() => handleMoveCamera('up')} style={styles.camToolBtn} title="Move Camera Up">🔼</button>
+              <button onClick={() => handleMoveCamera('down')} style={styles.camToolBtn} title="Move Camera Down">🔽</button>
+              <button onClick={() => handleMoveCamera('left')} style={styles.camToolBtn} title="Move Camera Left">◀️</button>
+              <button onClick={() => handleMoveCamera('right')} style={styles.camToolBtn} title="Move Camera Right">▶️</button>
+              
+              <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
+              
+              {/* Zoom Controls */}
+              <button onClick={() => handleZoomCamera('in')} style={styles.camToolBtn} title="Zoom In">🔍⁺</button>
+              <button onClick={() => handleZoomCamera('out')} style={styles.camToolBtn} title="Zoom Out">🔍⁻</button>
+              
+              <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
+              
+              {/* Corner Views */}
+              <button onClick={() => handleSetCornerView('NW')} style={styles.camToolBtn} title="North-West Corner View">↖️</button>
+              <button onClick={() => handleSetCornerView('NE')} style={styles.camToolBtn} title="North-East Corner View">↗️</button>
+              <button onClick={() => handleSetCornerView('SW')} style={styles.camToolBtn} title="South-West Corner View">↙️</button>
+              <button onClick={() => handleSetCornerView('SE')} style={styles.camToolBtn} title="South-East Corner View">↘️</button>
+              
+              <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
+              
+              {/* Plan (Top-down) View */}
+              <button onClick={() => handleSetPlanView()} style={styles.camToolBtn} title="Plan View (Top-Down)">🗺️</button>
+            </div>
+
             <div style={styles.floatingControls}>
               <button 
                 onClick={() => setIsAdminModalOpen(true)}
@@ -4552,6 +4646,22 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 5,
     fontFamily: 'sans-serif',
     transition: 'all 0.2s',
+  },
+  camToolBtn: {
+    width: '32px',
+    height: '32px',
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '14px',
+    color: '#e2e8f0',
+    cursor: 'pointer',
+    backdropFilter: 'blur(4px)',
+    transition: 'all 0.2s',
+    outline: 'none',
   },
   floatingControls: {
     position: 'absolute',
