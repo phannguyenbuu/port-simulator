@@ -1462,10 +1462,6 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         pointLight2.intensity = lightConfig.point2Intensity * pulse;
       }
 
-      // C. Auto Rotation
-      if (bottleMesh && stateRef.current.autoRotateSpeed > 0) {
-        bottleMesh.rotation.y += 0.01 * stateRef.current.autoRotateSpeed;
-      }
 
        // Animate wayfinding textures
       if (wayfindingGroupRef.current) {
