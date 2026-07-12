@@ -346,6 +346,21 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       .catch(err => {
         console.log('Backend not available, using default data.', err);
       });
+
+    fetch(`/api/material?t=${Date.now()}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Cannot load material.json');
+        return res.json();
+      })
+      .then(data => {
+        if (data && Object.keys(data).length > 0) {
+          setMaterialsMap(data);
+          setMaterialsJsonStr(JSON.stringify(data, null, 2));
+        }
+      })
+      .catch(err => {
+        console.log('Failed to fetch /api/material, using default preset.', err);
+      });
   }, []);
 
   const handleAddGate = () => {
@@ -2571,7 +2586,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                 </div>
 
                 {/* Selected Details Tab */}
-                <div style={{ flex: 1, overflowY: 'auto' }}>
+                <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
                   {activeAdminTab === 'details' && (
                     selectedObstacle ? (() => {
                       const path = paths.find(p => p.id === selectedObstacle.pathId);
@@ -2885,12 +2900,30 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                   style={{ width: '100%', height: '150px', backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', borderRadius: '4px', padding: '8px', fontSize: '12px', fontFamily: 'monospace' }}
                 />
                 <button
-                  style={{ ...styles.saveBtn, marginTop: '8px' }}
+                  style={{ ...styles.adminActionBtn, marginTop: '8px', width: '100%' }}
                   onClick={() => {
                     try {
                       const parsed = JSON.parse(materialsJsonStr);
-                      setMaterialsMap(parsed);
-                      alert('Đã cập nhật cấu hình màu vật liệu thành công!');
+                      
+                      fetch('/api/material', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(parsed)
+                      })
+                      .then(res => {
+                        if (!res.ok) throw new Error('Không thể ghi file cấu hình');
+                        return res.json();
+                      })
+                      .then(() => {
+                        setMaterialsMap(parsed);
+                        alert('Đã lưu cấu hình màu vật liệu và áp dụng thành công!');
+                      })
+                      .catch(err => {
+                        console.error(err);
+                        alert('Lỗi lưu file: ' + err.message);
+                      });
                     } catch (err) {
                       alert('JSON không hợp lệ. Vui lòng kiểm tra lại!');
                     }

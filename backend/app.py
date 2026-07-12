@@ -34,5 +34,33 @@ def save_config():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+MATERIAL_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public', 'asset', 'material.json')
+
+@app.route('/api/material', methods=['GET'])
+def get_material():
+    response_data = {}
+    if os.path.exists(MATERIAL_FILE):
+        try:
+            with open(MATERIAL_FILE, 'r', encoding='utf-8') as f:
+                response_data = json.load(f)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+            
+    response = jsonify(response_data)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+@app.route('/api/material', methods=['POST'])
+def save_material():
+    try:
+        data = request.json
+        with open(MATERIAL_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
