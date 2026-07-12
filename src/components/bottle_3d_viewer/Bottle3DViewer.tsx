@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { Stage, Layer, Circle, Line, Text as KonvaText, Group, RegularPolygon } from 'react-konva';
+import { Stage, Layer, Circle, Line, Text as KonvaText, Group, RegularPolygon, Image } from 'react-konva';
+import { routeData } from '../../data/routeData';
 
 // --- Interfaces ---
 
@@ -298,11 +299,32 @@ interface Bottle3DViewerProps {
 export default function Bottle3DViewer({ hideControls = false, moldCode = 'default' }: Bottle3DViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
 
-  const [nodes, setNodes] = useState<Record<string, PortNode>>(INITIAL_NODES);
-  const DEFAULT_NODES = nodes;
+  const [nodes, setNodes] = useState<Record<string, PortNode>>(routeData.nodes as any);
+  const DEFAULT_NODES = routeData.nodes as any;
 
   const [viewportTheme, setViewportTheme] = useState<'dark' | 'light'>('light');
-  const [activeAdminTab, setActiveAdminTab] = useState<'details' | 'gates' | 'paths'>('details');
+  const [activeAdminTab, setActiveAdminTab] = useState<'details' | 'gates' | 'paths' | 'environment'>('details');
+
+  const [materialsMap, setMaterialsMap] = useState<Record<string, string>>({
+    tree: "#22c55e",
+    building: "#00ffff",
+    crane: "#ffa500",
+    asphalt: "#64748b",
+    gate: "#ef4444",
+    park: "#3b82f6",
+    store: "#f59e0b",
+    pier: "#8b5cf6"
+  });
+  const [materialsJsonStr, setMaterialsJsonStr] = useState<string>(JSON.stringify({
+    tree: "#22c55e",
+    building: "#00ffff",
+    crane: "#ffa500",
+    asphalt: "#64748b",
+    gate: "#ef4444",
+    park: "#3b82f6",
+    store: "#f59e0b",
+    pier: "#8b5cf6"
+  }, null, 2));
 
   // Input states for adding new elements
   const [newGateName, setNewGateName] = useState('');
@@ -315,7 +337,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
   // Fetch configuration on load from Flask backend
   useEffect(() => {
-    fetch(`http://localhost:5000/api/config?t=${Date.now()}`)
+    fetch(`/api/config?t=${Date.now()}`)
       .then(res => res.json())
       .then(data => {
         if (data.nodes) setNodes(data.nodes);
@@ -373,7 +395,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   };
 
   const handleSaveToBackend = () => {
-    fetch('http://localhost:5000/api/config', {
+    fetch('/api/config', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -395,7 +417,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   };
 
   const saveToBackendLazy = (currentNodes: Record<string, PortNode>, currentPaths: PortPath[]) => {
-    fetch('http://localhost:5000/api/config', {
+    fetch('/api/config', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -431,9 +453,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const [currentTime, setCurrentTime] = useState<string>('');
 
   // Port routing states
-  const [paths, setPaths] = useState<PortPath[]>(() => {
+  const [paths, setPaths] = useState<any[]>(() => {
     const saved = localStorage.getItem(`port_paths_${moldCode}`);
-    return saved ? JSON.parse(saved) : DEFAULT_PATHS;
+    return saved ? JSON.parse(saved) : routeData.paths;
   });
   const [startNode, setStartNode] = useState<string>(() => {
     return localStorage.getItem(`port_start_node_${moldCode}`) || 'gate_a';
@@ -747,6 +769,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     // 7. Load OBJ Model (Port Layout + 10 Trucks)
     let bottleMesh: THREE.Group | null = null;
+    let sceneBoundingBoxStr = '';
     setLoadingProgress(0);
 
     const objLoader = new OBJLoader();
@@ -756,12 +779,22 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       });
     };
 
+    let fbxLoader: any;
+    const loadFbxModel = async (url: string): Promise<THREE.Group> => {
+      if (!fbxLoader) {
+        const { FBXLoader } = await import('three/examples/jsm/loaders/FBXLoader.js');
+        fbxLoader = new FBXLoader();
+      }
+      return new Promise((resolve, reject) => {
+        fbxLoader.load(url, resolve, undefined, reject);
+      });
+    };
+
     Promise.all([
       loadModel('/asset/general.obj'),
       loadModel('/asset/truck.obj'),
-      loadModel('/asset/geometry.obj'),
-      loadModel('/asset/port.obj')
-    ]).then(([generalObj, truckObj, geometryObj, portObj]) => {
+      loadModel('/asset/pin.obj')
+    ]).then(([generalObj, truckObj, pinObj]) => {
       const mainGroup = new THREE.Group();
 
       // 1. Process General Port Layout (Flip Y axis)
@@ -770,7 +803,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       const targetSize = 8.0;
       const scale = targetSize / Math.max(initialSize.x, initialSize.z);
 
-      generalObj.scale.set(-1, 3, 1);
+      generalObj.scale.set(-scale, scale * 3, scale);
 
       const generalBox = new THREE.Box3().setFromObject(generalObj);
       const generalCenter = generalBox.getCenter(new THREE.Vector3());
@@ -782,109 +815,123 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         -generalCenter.z
       );
 
-      // Define standard materials based on user design requests
-      const terrainMaterial = new THREE.MeshStandardMaterial({
-        color: 0x1e293b, // slate-800 (ốp vật liệu nền lớn màu xám đậm)
-        roughness: 0.9,
-        metalness: 0.1
-      });
-
-      const treeMaterial = new THREE.MeshStandardMaterial({
-        color: 0x22c55e, // màu xanh lá (cây xanh màu xanh lá)
-        roughness: 0.8,
-        metalness: 0.0
-      });
-
-      const whiteMaterial = new THREE.MeshStandardMaterial({
-        color: 0xffffff, // màu trắng sáng
-        roughness: 0.4,
-        metalness: 0.1
-      });
-
       generalObj.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           child.castShadow = true;
           child.receiveShadow = true;
-          child.material = whiteMaterial;
+
+          const meshName = (child.name || '').toLowerCase();
+          const matName = (child.material && child.material.name ? child.material.name.toLowerCase() : '');
+
+          let colorHex = 0xffffff; // default white
+          const matchKey = Object.keys(materialsMap).find(k => meshName.includes(k.toLowerCase()) || matName.includes(k.toLowerCase()));
+
+          if (matchKey) {
+            colorHex = parseInt((materialsMap[matchKey] || '#ffffff').replace('#', '0x'), 16);
+          } else if (meshName.includes('terrain') || matName.includes('terrain')) {
+            colorHex = 0x1e293b;
+          }
+
+          child.material = new THREE.MeshStandardMaterial({
+            color: colorHex,
+            roughness: 0.8,
+            metalness: 0.1
+          });
         }
       });
+      
+      // Override scale to 1000 as requested previously
+      generalObj.scale.set(1000, 1000, 1000);
       mainGroup.add(generalObj);
 
+      const truckClone = truckObj.clone();
+      truckClone.position.set(2, 0, 0);
+      mainGroup.add(truckClone);
 
-      // Find the largest mesh in geometryObj by vertex count
-      let largestMesh: THREE.Mesh | null = null;
-      let maxVertices = 0;
-      geometryObj.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          const vertexCount = child.geometry.attributes.position.count;
-          if (vertexCount > maxVertices) {
-            maxVertices = vertexCount;
-            largestMesh = child;
-          }
-        }
-      });
+      const routeGroup = new THREE.Group();
+      routeGroup.position.set(0, 0.1, 0); // slightly above ground
 
-      // Process and align detailed Port Geometry (geometry.obj)
-      geometryObj.scale.set(1, 1, 1);
-      geometryObj.position.copy(generalObj.position);
+      let loadedObjectsCount = 0;
+      if (pinObj) {
+        Object.keys(routeData.nodes).forEach(nodeId => {
+          const node = routeData.nodes[nodeId];
+          if (node.type && node.type.toUpperCase() === 'GATE') {
+            const pinClone = pinObj.clone();
+            
+            const mapName = (node.name || '').toLowerCase();
+            const colorHex = parseInt((materialsMap[Object.keys(materialsMap).find(k => mapName.includes(k)) || 'gate'] || '#ffffff').replace('#', '0x'), 16);
 
-      geometryObj.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-          const name = child.name ? child.name.toLowerCase() : '';
-          
-          if (name.includes('tree') || name.includes('green')) {
-            child.material = treeMaterial;
-          } else if (name === 'big') {
-            child.material = terrainMaterial;
-          } else {
-            child.material = whiteMaterial;
-          }
-        }
-      });
-      mainGroup.add(geometryObj);
+            pinClone.traverse((child) => {
+              if (child instanceof THREE.Mesh) {
+                child.material = new THREE.MeshBasicMaterial({
+                  color: colorHex
+                });
+              }
+            });
 
-      // Process and align port CAD lines (port.obj)
-      portObj.scale.set(1, -1, 1);
-      portObj.position.copy(generalObj.position);
-      portObj.rotation.y = Math.PI;
-      portObj.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-          child.material = whiteMaterial;
-        }
-      });
-      mainGroup.add(portObj);
+            const posX = node.y;
+            const posZ = node.x;
+            pinClone.scale.set(1, 1, 1);
+            pinClone.position.set(posX, 0, posZ);
+            routeGroup.add(pinClone);
+            loadedObjectsCount++;
 
-      // 2. Process and Instance 10 Trucks
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1024;
+            const context = canvas.getContext('2d');
+            if (context) {
+              context.fillStyle = 'rgba(0,0,0,0)';
+              context.fillRect(0, 0, 1024, 1024);
+              context.font = 'bold 60px Inter, sans-serif';
+              context.fillStyle = materialsMap[Object.keys(materialsMap).find(k => mapName.includes(k)) || 'gate'] || '#ffffff';
+              context.textAlign = 'center';
+              context.textBaseline = 'middle';
+              context.fillText(node.name.toUpperCase(), 512, 512);
 
-      for (let i = 0; i < 10; i++) {
-        const truckClone = truckObj.clone();
-        
-        truckClone.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
-            child.material = whiteMaterial;
+              const texture = new THREE.CanvasTexture(canvas);
+              texture.needsUpdate = true;
+              const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+              const sprite = new THREE.Sprite(spriteMaterial);
+              sprite.position.set(0, 40, 0); // Position it 40 units above the node!
+              sprite.scale.set(150, 150, 1); // Make the sprite bigger!
+              pinClone.add(sprite);
+            }
           }
         });
 
-        truckClone.scale.set(1.0, 1.0, 1.0);
-
-        const angle = (i / 10) * Math.PI * 2;
-        const radius = 300.0;
-        truckClone.position.set(Math.cos(angle) * radius, 0.01, Math.sin(angle) * radius);
-        truckClone.rotation.y = -angle + Math.PI / 2;
-
-        mainGroup.add(truckClone);
+        // 3D paths mapping
+        routeData.paths.forEach(path => {
+          const fromNode = routeData.nodes[path.from];
+          const toNode = routeData.nodes[path.to];
+          if (fromNode && toNode) {
+            const material = new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.3 });
+            
+            const points = [];
+            points.push(new THREE.Vector3(fromNode.y, 0, fromNode.x));
+            if (path.points && path.points.length > 0) {
+              path.points.forEach((p: number[]) => {
+                points.push(new THREE.Vector3(p[1], 0, p[0]));
+              });
+            }
+            points.push(new THREE.Vector3(toNode.y, 0, toNode.x));
+            
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(geometry, material);
+            routeGroup.add(line);
+          }
+        });
       }
 
-      mainGroup.position.y = 0.0;
+      mainGroup.add(routeGroup);
 
+      mainGroup.position.y = 0.0;
       scene.add(mainGroup);
       bottleMesh = mainGroup;
+      
+      const bbox = new THREE.Box3().setFromObject(mainGroup);
+      sceneBoundingBoxStr = `<br/>BOX: MIN(${bbox.min.x.toFixed(2)}, ${bbox.min.y.toFixed(2)}, ${bbox.min.z.toFixed(2)}) MAX(${bbox.max.x.toFixed(2)}, ${bbox.max.y.toFixed(2)}, ${bbox.max.z.toFixed(2)})<br/>SIZE: W:${(bbox.max.x - bbox.min.x).toFixed(2)} H:${(bbox.max.y - bbox.min.y).toFixed(2)} D:${(bbox.max.z - bbox.min.z).toFixed(2)}<br/>TOTAL 3D OBJECTS LOADED: ${loadedObjectsCount}`;
+      
       setLoadingProgress(-1); // Finished
     }).catch((err) => {
       console.error('Failed to load assets', err);
@@ -962,7 +1009,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
       const infoBadge = document.getElementById('camera-info-badge');
       if (infoBadge) {
-        infoBadge.innerHTML = `CAM: X: ${camera.position.x.toFixed(2)} Y: ${camera.position.y.toFixed(2)} Z: ${camera.position.z.toFixed(2)}<br/>TAR: X: ${controls.target.x.toFixed(2)} Y: ${controls.target.y.toFixed(2)} Z: ${controls.target.z.toFixed(2)}`;
+        infoBadge.innerHTML = `CAM: X: ${camera.position.x.toFixed(2)} Y: ${camera.position.y.toFixed(2)} Z: ${camera.position.z.toFixed(2)}<br/>TAR: X: ${controls.target.x.toFixed(2)} Y: ${controls.target.y.toFixed(2)} Z: ${controls.target.z.toFixed(2)}${sceneBoundingBoxStr}`;
       }
 
       // FPS tracking
@@ -1027,7 +1074,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         container.removeChild(renderer.domElement);
       }
     };
-  }, []);
+  }, [materialsMap]);
 
   // Pathfinding result
   const routeResult = useMemo(() => {
@@ -1403,62 +1450,44 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       >
         <Layer>
           {paths.map(path => {
-            const fromNode = DEFAULT_NODES[path.from];
-            const toNode = DEFAULT_NODES[path.to];
-            if (!fromNode || !toNode) return null;
+            const fNode = DEFAULT_NODES[path.from];
+            const tNode = DEFAULT_NODES[path.to];
+            if (!fNode || !tNode) return null;
+            
+            const fromNode = isMobile ? { ...fNode, x: fNode.y, y: fNode.x } : fNode;
+            const toNode = isMobile ? { ...tNode, x: tNode.y, y: tNode.x } : tNode;
+            
             const isSelected = path.id === selectedPathId;
             const isFullyBlocked = path.obstacleStart && path.obstacleEnd;
             const hasRepair = path.obstacleStart || path.obstacleEnd;
 
-            const oxStart = fromNode.x + (toNode.x - fromNode.x) * 0.25;
-            const oyStart = fromNode.y + (toNode.y - fromNode.y) * 0.25;
-            const oxEnd = fromNode.x + (toNode.x - fromNode.x) * 0.75;
-            const oyEnd = fromNode.y + (toNode.y - fromNode.y) * 0.75;
+            const polylinePoints = path.points && path.points.length > 0
+                ? path.points.reduce((acc: number[], p: number[]) => isMobile ? acc.concat([p[1], p[0]]) : acc.concat([p[0], p[1]]), [])
+                : [fromNode.x, fromNode.y, toNode.x, toNode.y];
+            
+            const midIndex = path.points ? Math.floor(path.points.length / 2) : 0;
+            const midX = path.points && path.points.length > 0 ? (isMobile ? path.points[midIndex][1] : path.points[midIndex][0]) : (fromNode.x + toNode.x) / 2;
+            const midY = path.points && path.points.length > 0 ? (isMobile ? path.points[midIndex][0] : path.points[midIndex][1]) : (fromNode.y + toNode.y) / 2;
 
             return (
               <Group key={path.id}>
-                {hasRepair ? (
-                  <>
-                    <Line
-                      points={[fromNode.x, fromNode.y, oxStart, oyStart]}
-                      stroke={isSelected ? '#a855f7' : isMobile ? '#16a34a' : '#38bdf8'}
-                      strokeWidth={isSelected ? 6 : 4}
-                      lineCap="round"
-                      onClick={() => setSelectedPathId(path.id)}
-                      onTap={() => setSelectedPathId(path.id)}
-                    />
-                    <Line
-                      points={[oxStart, oyStart, oxEnd, oyEnd]}
-                      stroke={isSelected ? '#a855f7' : isFullyBlocked ? '#ef4444' : '#f97316'}
-                      strokeWidth={isSelected ? 6 : 4}
-                      dash={isFullyBlocked ? [10, 5] : [6, 4]}
-                      lineCap="round"
-                      onClick={() => setSelectedPathId(path.id)}
-                      onTap={() => setSelectedPathId(path.id)}
-                    />
-                    <Line
-                      points={[oxEnd, oyEnd, toNode.x, toNode.y]}
-                      stroke={isSelected ? '#a855f7' : isMobile ? '#16a34a' : '#38bdf8'}
-                      strokeWidth={isSelected ? 6 : 4}
-                      lineCap="round"
-                      onClick={() => setSelectedPathId(path.id)}
-                      onTap={() => setSelectedPathId(path.id)}
-                    />
-                  </>
-                ) : (
-                  <Line
-                    points={[fromNode.x, fromNode.y, toNode.x, toNode.y]}
-                    stroke={isSelected ? '#a855f7' : isMobile ? '#16a34a' : '#38bdf8'}
-                    strokeWidth={isSelected ? 6 : 4}
-                    lineCap="round"
-                    onClick={() => setSelectedPathId(path.id)}
-                    onTap={() => setSelectedPathId(path.id)}
-                  />
-                )}
+                <Line
+                  points={polylinePoints}
+                  stroke={isSelected ? '#a855f7' : isFullyBlocked ? '#ef4444' : hasRepair ? '#f97316' : isMobile ? '#ffffff' : '#38bdf8'}
+                  strokeWidth={isMobile ? 8 : (isSelected ? 6 : 4)}
+                  shadowColor={isMobile ? "black" : undefined}
+                  shadowBlur={isMobile ? 4 : 0}
+                  shadowOffset={isMobile ? { x: 2, y: 2 } : { x: 0, y: 0 }}
+                  shadowOpacity={isMobile ? 0.5 : 0}
+                  dash={isFullyBlocked ? [10, 5] : hasRepair ? [6, 4] : undefined}
+                  lineCap="round"
+                  onClick={() => setSelectedPathId(path.id)}
+                  onTap={() => setSelectedPathId(path.id)}
+                />
                 
                 <KonvaText
-                  x={(fromNode.x + toNode.x) / 2 - 10}
-                  y={(fromNode.y + toNode.y) / 2 - 10}
+                  x={midX - 10}
+                  y={midY - 10}
                   text={`${path.weight}m`}
                   fontSize={10}
                   fill={isMobile ? '#1e293b' : '#cbd5e1'}
@@ -1654,6 +1683,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             if (node.type === 'storage') fillVal = '#f97316';
             if (node.type === 'pier') fillVal = '#a855f7';
 
+            const actX = isMobile ? node.y : node.x;
+            const actY = isMobile ? node.x : node.y;
+
             const isStart = node.id === startNode;
             const isEnd = node.id === endNode;
             const isSelectedNode = node.id === selectedNodeId;
@@ -1668,8 +1700,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                   e.target.position({ x: 0, y: 0 });
                   e.target.getLayer().batchDraw();
                   
-                  const newX = Math.round(node.x + dx);
-                  const newY = Math.round(node.y + dy);
+                  const newX = isMobile ? Math.round(node.x + dy) : Math.round(node.x + dx);
+                  const newY = isMobile ? Math.round(node.y + dx) : Math.round(node.y + dy);
                   
                   const updatedNodes = {
                     ...nodes,
@@ -1699,8 +1731,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               >
                 {(isStart || isEnd || isSelectedNode) && (
                   <Circle
-                    x={node.x}
-                    y={node.y}
+                    x={actX}
+                    y={actY}
                     radius={18}
                     fill="transparent"
                     stroke={isSelectedNode ? '#3b82f6' : isStart ? '#22c55e' : '#a855f7'}
@@ -1710,8 +1742,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                 )}
 
                 <Circle
-                  x={node.x}
-                  y={node.y}
+                  x={actX}
+                  y={actY}
                   radius={12}
                   fill={fillVal}
                   stroke={isSelectedNode ? '#3b82f6' : '#fff'}
@@ -1721,8 +1753,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                   shadowOpacity={0.3}
                 />
                 <KonvaText
-                  x={node.x - 40}
-                  y={node.y + 16}
+                  x={actX - 40}
+                  y={actY + 16}
                   width={80}
                   align="center"
                   text={node.name.split(' (')[0]}
@@ -1756,7 +1788,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           <div style={styles.overlay}>
             <div style={styles.errorBox}>
               <span style={{ fontSize: '24px' }}>⚠️</span>
-              <div style={styles.loaderText}>Không thể load file Waterbottle.obj</div>
+              <div style={styles.loaderText}>Không thể load file Asset 3D</div>
               <div style={{ fontSize: '11px', color: '#fda4af', marginTop: '4px' }}>
                 Đảm bảo file được copy vào thư mục public của frontend.
               </div>
@@ -1778,8 +1810,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               <button 
                 onClick={() => setIsAdminModalOpen(true)}
                 style={styles.adminBtn}
+                title="Settings"
               >
-                Admin
+                ⚙️
               </button>
               <button 
                 onClick={() => setViewportTheme(prev => prev === 'dark' ? 'light' : 'dark')}
@@ -1798,138 +1831,15 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       {/* Controller Controls Column (including mobile simulator) */}
       {!hideControls && (
         <div style={styles.sidebar}>
-          {/* 1. Control Panel (Top) */}
-          <div style={{
-            ...styles.sidebarInner,
-            height: isControlPanelCollapsed 
-              ? '0px' 
-              : isMobileCollapsed 
-                ? 'calc(100% - 64px)' 
-                : 'calc(100% - 710px - 64px)',
-            padding: isControlPanelCollapsed ? '0px' : '20px',
-            opacity: isControlPanelCollapsed ? 0 : 1,
-            visibility: isControlPanelCollapsed ? 'hidden' : 'visible',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            borderBottom: isControlPanelCollapsed ? 'none' : '1px solid #1e293b',
-          }}>
-            <h3 style={styles.sidebarTitle}>Cấu Hình Mô Phỏng 3D Cảng</h3>
-
-            {/* Lighting Config */}
-            <div style={styles.controlGroup}>
-              <label style={styles.label}>Môi trường & Ánh sáng</label>
-              <div style={styles.presetsGrid}>
-                {Object.keys(LIGHTS).map((key) => (
-                  <button
-                    key={key}
-                    style={{ ...styles.presetBtn, ...(activeLighting === key ? styles.presetBtnActive : {}) }}
-                    onClick={() => setActiveLighting(key)}
-                  >
-                    💡 {key.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-
-
-            <div style={styles.toggleRow}>
-              <label style={styles.labelCheckbox}>
-                <input
-                  type="checkbox"
-                  checked={showWireframe}
-                  onChange={(e) => setShowWireframe(e.target.checked)}
-                  style={styles.checkbox}
-                />
-                Hiển thị khung lưới (Wireframe)
-              </label>
-            </div>
-          </div>
-
-          {/* 2. Control Panel Toggle Bar (Middle) */}
-          <div
-            onClick={() => setIsControlPanelCollapsed(!isControlPanelCollapsed)}
-            style={{
-              height: '32px',
-              minHeight: '32px',
-              backgroundColor: '#1e293b',
-              borderBottom: '1px solid #334155',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: '#cbd5e1',
-              transition: 'background-color 0.2s ease',
-              userSelect: 'none',
-              zIndex: 10,
-            }}
-            title={isControlPanelCollapsed ? "Mở rộng bảng điều khiển" : "Thu gọn bảng điều khiển"}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#334155'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#1e293b'}
-          >
-            {isControlPanelCollapsed ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="18 15 12 9 6 15"></polyline>
-              </svg>
-            )}
-          </div>
-
-          {/* 3. Mobile Device Toggle Bar */}
-          <div
-            onClick={() => setIsMobileCollapsed(!isMobileCollapsed)}
-            style={{
-              height: '32px',
-              minHeight: '32px',
-              backgroundColor: '#111827',
-              borderBottom: isMobileCollapsed ? 'none' : '1px solid #1e293b',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: '#9ca3af',
-              transition: 'background-color 0.2s ease',
-              userSelect: 'none',
-              zIndex: 10,
-            }}
-            title={isMobileCollapsed ? "Mở rộng giao diện di động" : "Thu gọn giao diện di động"}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1f2937'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#111827'}
-          >
-            <span style={{ fontSize: '11px', fontWeight: 600, marginRight: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Giao diện Mobile Mockup
-            </span>
-            {isMobileCollapsed ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="18 15 12 9 6 15"></polyline>
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            )}
-          </div>
-
-          {/* 4. Mobile Device (Bottom) */}
+          {/* Mobile Device Mockup Full Height */}
           <div style={{
             ...styles.mobileDevice,
-            height: isMobileCollapsed 
-              ? '0px' 
-              : isControlPanelCollapsed 
-                ? 'calc(100% - 64px)' 
-                : '710px',
-            minHeight: isMobileCollapsed 
-              ? '0px' 
-              : isControlPanelCollapsed 
-                ? 'calc(100% - 64px)' 
-                : '710px',
-            borderTopWidth: isMobileCollapsed ? '0px' : '12px',
-            borderLeftWidth: isMobileCollapsed ? '0px' : '12px',
-            opacity: isMobileCollapsed ? 0 : 1,
-            visibility: isMobileCollapsed ? 'hidden' : 'visible',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            height: '100%',
+            minHeight: '100%',
+            borderTopWidth: '0px',
+            borderLeftWidth: '1px',
+            borderColor: '#334155',
+            flex: 1,
           }}>
             <div style={styles.mobileSpeaker} />
             <div style={styles.mobileScreen}>
@@ -1948,11 +1858,11 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                 alignItems: 'center',
                 justifyContent: 'center'
               }}>
-                <span style={{ fontSize: '15px', fontWeight: 700, color: '#38bdf8' }}>📍 Port Navigator</span>
+                <span style={{ fontSize: '8px', fontWeight: 700, color: '#38bdf8' }}>📍 Port Navigator</span>
               </div>
 
               {/* Map on top half of mobile screen */}
-              <div style={{ height: '50vh', width: '100%', borderBottom: '2px solid #1e293b', position: 'relative', overflow: 'hidden', backgroundColor: '#f0fdf4' }}>
+              <div style={{ height: '50vh', width: '100%', borderBottom: '2px solid #1e293b', position: 'relative', overflow: 'hidden', backgroundColor: '#22c55e' }}>
                 {renderAdminStage(356, Math.round(window.innerHeight * 0.5), true)}
               </div>
 
@@ -1962,21 +1872,22 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
 
                   {/* Swap inputs design */}
-                  <div style={styles.appForm}>
-                    <div style={styles.inputGroup}>
-                      <label style={styles.appLabel}>Điểm khởi hành</label>
+                  <div style={{ ...styles.appForm, display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ ...styles.inputGroup, flex: 1, marginBottom: 0 }}>
+                      <label style={styles.appLabel}>From</label>
                       <select 
                         value={startNode} 
                         onChange={(e) => setStartNode(e.target.value)}
                         style={styles.appSelect}
                       >
+                        <option value="">---</option>
                         {Object.values(DEFAULT_NODES).map(node => (
                           <option key={node.id} value={node.id}>{node.name}</option>
                         ))}
                       </select>
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'center', margin: '-6px 0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginTop: '16px' }}>
                       <button 
                         onClick={() => {
                           const tmp = startNode;
@@ -1995,19 +1906,20 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                           alignItems: 'center',
                           justifyContent: 'center',
                         }}
-                        title="Đổi chiều"
+                        title="Swap"
                       >
                         ⇅
                       </button>
                     </div>
 
-                    <div style={styles.inputGroup}>
-                      <label style={styles.appLabel}>Điểm đến</label>
+                    <div style={{ ...styles.inputGroup, flex: 1, marginBottom: 0 }}>
+                      <label style={styles.appLabel}>To</label>
                       <select 
                         value={endNode} 
                         onChange={(e) => setEndNode(e.target.value)}
                         style={styles.appSelect}
                       >
+                        <option value="">---</option>
                         {Object.values(DEFAULT_NODES).map(node => (
                           <option key={node.id} value={node.id}>{node.name}</option>
                         ))}
@@ -2016,29 +1928,27 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                   </div>
 
                   {/* Route Summary */}
-                  {routeResult ? (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', backgroundColor: '#1e293b', borderRadius: '8px', borderLeft: '4px solid #38bdf8', marginBottom: '12px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>Dự kiến:</span>
-                        <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#f8fafc' }}>
-                          🕒 {Math.max(1, Math.round(routeResult.distance / 45))} phút
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>Quãng đường:</span>
-                        <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#38bdf8' }}>
-                          {routeResult.distance} m
-                        </span>
-                      </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', backgroundColor: '#1e293b', borderRadius: '8px', borderLeft: '4px solid #38bdf8', marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>ETA:</span>
+                      <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#f8fafc' }}>
+                        🕒 {routeResult ? Math.max(1, Math.round(routeResult.distance / 45)) + ' min' : '---'}
+                      </span>
                     </div>
-                  ) : null}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>Distance:</span>
+                      <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#38bdf8' }}>
+                        {routeResult ? routeResult.distance + ' m' : '---'}
+                      </span>
+                    </div>
+                  </div>
 
                   {/* Route Timeline / Path steps */}
                   <div style={styles.resultArea}>
                     {routeResult ? (
                       <div style={styles.routeDetails}>
                         <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
-                          Lộ trình chi tiết:
+                          Detailed Route:
                         </span>
                         
                         <div style={{ display: 'flex', flexDirection: 'column', position: 'relative', paddingLeft: '16px' }}>
@@ -2081,10 +1991,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                       </div>
                     ) : (
                       <div style={styles.routeError}>
-                        ⚠️ Không tìm thấy đường đi!<br/>
+                        ⚠️ Route not found!<br/>
                         <span style={{ fontSize: '10px', marginTop: '4px', display: 'block', opacity: 0.8 }}>
-                          Tất cả các ngả đường đã bị chặn do vật cản sửa chữa.
-                        </span>
+                          All paths are blocked by obstacles.</span>
                       </div>
                     )}
                   </div>
@@ -2659,6 +2568,12 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                   >
                     Tuyến
                   </button>
+                  <button 
+                    onClick={() => setActiveAdminTab('environment')}
+                    style={{ flex: 1, padding: '8px', fontSize: '11px', fontWeight: 600, border: 'none', backgroundColor: activeAdminTab === 'environment' ? '#1e293b' : 'transparent', color: activeAdminTab === 'environment' ? '#38bdf8' : '#94a3b8', cursor: 'pointer' }}
+                  >
+                    3D Config
+                  </button>
                 </div>
 
                 {/* Selected Details Tab */}
@@ -2941,7 +2856,59 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                   )}
 
                   {/* Paths Management Tab */}
-                  {activeAdminTab === 'paths' && (
+                            {activeAdminTab === 'environment' && (
+            <div style={{ marginTop: '16px' }}>
+              <div style={styles.controlGroup}>
+                <label style={styles.label}>Preset Ánh sáng</label>
+                <div style={styles.presetsGrid}>
+                  {Object.keys(LIGHTS).map((key) => (
+                    <button
+                      key={key}
+                      style={{ ...styles.presetBtn, ...(activeLighting === key ? styles.presetBtnActive : {}) }}
+                      onClick={() => setActiveLighting(key)}
+                    >
+                      💡 {key.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={styles.toggleRow}>
+                <label style={styles.labelCheckbox}>
+                  <input
+                    type="checkbox"
+                    checked={showWireframe}
+                    onChange={(e) => setShowWireframe(e.target.checked)}
+                    style={styles.checkbox}
+                  />
+                  Hiển thị khung lưới (Wireframe)
+                </label>
+              </div>
+              <div style={{ ...styles.controlGroup, marginTop: '16px' }}>
+                <label style={styles.label}>Cấu hình material.json</label>
+                <textarea
+                  value={materialsJsonStr}
+                  onChange={(e) => setMaterialsJsonStr(e.target.value)}
+                  style={{ width: '100%', height: '150px', backgroundColor: '#1e293b', color: '#f8fafc', border: '1px solid #334155', borderRadius: '4px', padding: '8px', fontSize: '12px', fontFamily: 'monospace' }}
+                />
+                <button
+                  style={{ ...styles.saveBtn, marginTop: '8px' }}
+                  onClick={() => {
+                    try {
+                      const parsed = JSON.parse(materialsJsonStr);
+                      setMaterialsMap(parsed);
+                      alert('Đã cập nhật cấu hình màu vật liệu thành công!');
+                    } catch (err) {
+                      alert('JSON không hợp lệ. Vui lòng kiểm tra lại!');
+                    }
+                  }}
+                >
+                  Áp dụng Material Config
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeAdminTab === 'paths' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       <div style={{ fontSize: '12px', fontWeight: 600, color: '#38bdf8' }}>DANH SÁCH TUYẾN ĐƯỜNG</div>
                       <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #1e293b', borderRadius: '6px', padding: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
