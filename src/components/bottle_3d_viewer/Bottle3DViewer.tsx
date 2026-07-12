@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { Stage, Layer, Circle, Line, Text as KonvaText, Group, RegularPolygon, Image } from 'react-konva';
+import { Stage, Layer, Circle, Line, Text as KonvaText, Group, RegularPolygon, Image, Path } from 'react-konva';
 import { routeData } from '../../data/routeData';
 
 // --- Interfaces ---
@@ -69,7 +69,8 @@ function findShortestPath(
   nodes: Record<string, PortNode>,
   paths: PortPath[],
   startId: string,
-  endId: string
+  endId: string,
+  customObstacles?: CustomObstacle[]
 ): { path: string[]; distance: number; nodesCoords: Record<string, { x: number; y: number }> } | null {
   if (startId === endId) {
     return {
@@ -106,6 +107,23 @@ function findShortestPath(
 
   const gateProjNodes: Record<string, string> = {}; // gateId -> projNodeId
   const projCoords: Record<string, { x: number; y: number }> = {};
+
+  // Construct projections for custom obstacles
+  if (customObstacles) {
+    customObstacles.forEach(obs => {
+      if (obs.pathId && projections[obs.pathId]) {
+        const projNodeId = `${obs.pathId}_custom_obs_${obs.id}`;
+        projections[obs.pathId].push({
+          gateId: `custom_obs_${obs.id}`,
+          segIndex: obs.segIndex,
+          t: obs.t,
+          x: obs.projX,
+          y: obs.projY
+        });
+        projCoords[projNodeId] = { x: obs.projX, y: obs.projY };
+      }
+    });
+  }
 
   Object.keys(nodes).forEach(gateId => {
     const G = nodes[gateId];
@@ -317,6 +335,11 @@ function findShortestPath(
       const u = seq[i];
       const v = seq[i+1];
 
+      // Skip adding edge if it touches a custom obstacle (blocking traverse)
+      if (u.id.includes('custom_obs') || v.id.includes('custom_obs')) {
+        continue;
+      }
+
       addVertex(u.id, u.x, u.y);
       addVertex(v.id, v.x, v.y);
 
@@ -518,6 +541,17 @@ function getRouteArrows(points: { x: number; y: number }[], offset: number, spac
   return arrows;
 }
 
+interface CustomObstacle {
+  id: string;
+  x: number;
+  y: number;
+  pathId: string;
+  projX: number;
+  projY: number;
+  segIndex: number;
+  t: number;
+}
+
 interface Bottle3DViewerProps {
   hideControls?: boolean;
   moldCode?: string;
@@ -525,6 +559,8 @@ interface Bottle3DViewerProps {
 
 export default function Bottle3DViewer({ hideControls = false, moldCode = 'default' }: Bottle3DViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const [customObstacles, setCustomObstacles] = useState<CustomObstacle[]>([]);
+  const [selectedObstacleId, setSelectedObstacleId] = useState<string | null>(null);
 
   const [nodes, setNodes] = useState<Record<string, PortNode>>(routeData.nodes as any);
   const DEFAULT_NODES = routeData.nodes as any;
@@ -755,6 +791,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const [isAudioMuted, setIsAudioMuted] = useState<boolean>(false);
   const sigCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const wayfindingGroupRef = useRef<THREE.Group | null>(null);
+  const obstaclesGroupRef = useRef<THREE.Group | null>(null);
+  const pinObjRef = useRef<THREE.Group | null>(null);
   const truckMeshRef = useRef<THREE.Group | null>(null);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
 
@@ -1176,6 +1214,12 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       mainGroup.add(wayfindingGroup);
       wayfindingGroupRef.current = wayfindingGroup;
 
+      const obstaclesGroup = new THREE.Group();
+      obstaclesGroup.position.y = 1.1; // Float slightly above the roads
+      mainGroup.add(obstaclesGroup);
+      obstaclesGroupRef.current = obstaclesGroup;
+      pinObjRef.current = pinObj;
+
       mainGroup.position.y = 0.0;
       scene.add(mainGroup);
       bottleMesh = mainGroup;
@@ -1377,6 +1421,135 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           }
         });
       }
+    // Raycasting & custom obstacles interaction (Click to place/select, drag to move)
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let draggedObstacleId: string | null = null;
+    let dragStartPos = { x: 0, y: 0 };
+
+    const handlePointerDown = (e: PointerEvent) => {
+      if (!obstaclesGroupRef.current) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      dragStartPos = { x: e.clientX, y: e.clientY };
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(obstaclesGroupRef.current.children, true);
+      if (intersects.length > 0) {
+        let obj: THREE.Object3D | null = intersects[0].object;
+        while (obj && !obj.userData.obstacleId) {
+          obj = obj.parent;
+        }
+        if (obj && obj.userData.obstacleId) {
+          draggedObstacleId = obj.userData.obstacleId;
+          controls.enabled = false;
+        }
+      }
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!draggedObstacleId) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObject(generalObj, true);
+      if (intersects.length > 0) {
+        const pt = intersects[0].point;
+        const clickX2D = pt.z;
+        const clickY2D = pt.x;
+
+        const proj = projectObstacleToNearestPath(clickX2D, clickY2D);
+        if (proj.pathId) {
+          setCustomObstacles(prev => prev.map(obs => {
+            if (obs.id === draggedObstacleId) {
+              return {
+                ...obs,
+                x: clickX2D,
+                y: clickY2D,
+                pathId: proj.pathId,
+                projX: proj.projX,
+                projY: proj.projY,
+                segIndex: proj.segIndex,
+                t: proj.t
+              };
+            }
+            return obs;
+          }));
+        }
+      }
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      const dx = e.clientX - dragStartPos.x;
+      const dy = e.clientY - dragStartPos.y;
+      const dragDist = Math.hypot(dx, dy);
+
+      if (draggedObstacleId) {
+        draggedObstacleId = null;
+        controls.enabled = true;
+        return;
+      }
+
+      if (dragDist < 4) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+
+        // Try selecting custom obstacle first
+        if (obstaclesGroupRef.current) {
+          const intersectsObs = raycaster.intersectObjects(obstaclesGroupRef.current.children, true);
+          if (intersectsObs.length > 0) {
+            let obj: THREE.Object3D | null = intersectsObs[0].object;
+            while (obj && !obj.userData.obstacleId) {
+              obj = obj.parent;
+            }
+            if (obj && obj.userData.obstacleId) {
+              setSelectedObstacleId(obj.userData.obstacleId);
+              return;
+            }
+          }
+        }
+
+        // Click on terrain to place obstacle
+        if (stateRef.current.activeTool === 'obstacle') {
+          const intersectsGround = raycaster.intersectObject(generalObj, true);
+          if (intersectsGround.length > 0) {
+            const pt = intersectsGround[0].point;
+            const clickX2D = pt.z;
+            const clickY2D = pt.x;
+
+            const proj = projectObstacleToNearestPath(clickX2D, clickY2D);
+            if (proj.pathId) {
+              const newObsId = `obs_${Math.random().toString(36).substr(2, 9)}`;
+              const newObs: CustomObstacle = {
+                id: newObsId,
+                x: clickX2D,
+                y: clickY2D,
+                pathId: proj.pathId,
+                projX: proj.projX,
+                projY: proj.projY,
+                segIndex: proj.segIndex,
+                t: proj.t
+              };
+              setCustomObstacles(prev => [...prev, newObs]);
+              setSelectedObstacleId(newObsId);
+            }
+          }
+        } else {
+          // Deselect
+          setSelectedObstacleId(null);
+        }
+      }
+    };
+
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    renderer.domElement.addEventListener('pointermove', handlePointerMove);
+    renderer.domElement.addEventListener('pointerup', handlePointerUp);
     };
     
     const resizeObserver = new ResizeObserver(() => {
@@ -1389,6 +1562,14 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       cancelAnimationFrame(animationFrameId);
       resizeObserver.disconnect();
       wayfindingGroupRef.current = null;
+      obstaclesGroupRef.current = null;
+      
+      if (renderer.domElement) {
+        renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+        renderer.domElement.removeEventListener('pointermove', handlePointerMove);
+        renderer.domElement.removeEventListener('pointerup', handlePointerUp);
+      }
+      obstaclesGroupRef.current = null;
       
       // Dispose materials & geometries
       bottleMaterial.dispose();
@@ -1426,8 +1607,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
   // Pathfinding result
   const routeResult = useMemo(() => {
-    return findShortestPath(DEFAULT_NODES, paths, startNode, endNode);
-  }, [paths, startNode, endNode]);
+    return findShortestPath(DEFAULT_NODES, paths, startNode, endNode, customObstacles);
+  }, [paths, startNode, endNode, customObstacles]);
 
   // Continuous 2D wayfinding arrow offset animation tick
   useEffect(() => {
@@ -1619,6 +1800,53 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     }
   }, [routeResult, canvasSize, fitRouteOnStage]);
 
+  // Project coordinates to nearest path segment
+  const projectObstacleToNearestPath = useCallback((x: number, y: number) => {
+    let bestDist = Infinity;
+    let bestPathId = '';
+    let bestProjX = x;
+    let bestProjY = y;
+    let bestSegIndex = 0;
+    let bestT = 0;
+
+    paths.forEach(p => {
+      const fNode = DEFAULT_NODES[p.from];
+      const tNode = DEFAULT_NODES[p.to];
+      if (!fNode || !tNode) return;
+
+      const baseSeq = p.points && p.points.length > 0
+        ? p.points.map(pt => ({ x: pt[0], y: pt[1] }))
+        : [{ x: fNode.x, y: fNode.y }, { x: tNode.x, y: tNode.y }];
+
+      for (let i = 0; i < baseSeq.length - 1; i++) {
+        const u = baseSeq[i];
+        const v = baseSeq[i+1];
+        const dx = v.x - u.x;
+        const dy = v.y - u.y;
+        const len2 = dx * dx + dy * dy;
+        if (len2 === 0) continue;
+
+        let tVal = ((x - u.x) * dx + (y - u.y) * dy) / len2;
+        tVal = Math.max(0, Math.min(1, tVal));
+
+        const px = u.x + tVal * dx;
+        const py = u.y + tVal * dy;
+        const dist = Math.hypot(x - px, y - py);
+
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestPathId = p.id;
+          bestProjX = px;
+          bestProjY = py;
+          bestSegIndex = i;
+          bestT = tVal;
+        }
+      }
+    });
+
+    return { pathId: bestPathId, projX: bestProjX, projY: bestProjY, segIndex: bestSegIndex, t: bestT, dist: bestDist };
+  }, [paths, DEFAULT_NODES]);
+
   // Update wayfinding line in 3D scene when routeResult changes
   useEffect(() => {
     const wayfindingGroup = wayfindingGroupRef.current;
@@ -1727,6 +1955,46 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     return () => {};
   }, [routeResult, getNodeCoordinates]);
 
+  // Synchronize custom obstacles in 3D scene
+  useEffect(() => {
+    const obstaclesGroup = obstaclesGroupRef.current;
+    const pinObj = pinObjRef.current;
+    if (!obstaclesGroup || !pinObj) return;
+
+    // Clear existing children
+    while (obstaclesGroup.children.length > 0) {
+      const child = obstaclesGroup.children[0];
+      child.traverse((c: any) => {
+        if (c.geometry) c.geometry.dispose();
+        if (c.material) {
+          if (Array.isArray(c.material)) c.material.forEach((m: any) => m.dispose());
+          else c.material.dispose();
+        }
+      });
+      obstaclesGroup.remove(child);
+    }
+
+    // Render new custom obstacles
+    customObstacles.forEach(obs => {
+      const pinClone = pinObj.clone();
+      pinClone.scale.set(2.0, 2.0, 2.0); // Size * 2
+      
+      pinClone.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.material = new THREE.MeshBasicMaterial({
+            color: obs.id === selectedObstacleId ? 0xa855f7 : 0xef4444 // Selected: purple, otherwise red
+          });
+        }
+      });
+
+      // Coordinates in 3D: X -> Z, Y -> X (matching road coordinates)
+      pinClone.position.set(obs.projY, 0.0, obs.projX);
+      pinClone.userData = { obstacleId: obs.id };
+
+      obstaclesGroup.add(pinClone);
+    });
+  }, [customObstacles, selectedObstacleId]);
+
   // Vehicle coordinate & angle interpolation for Screen 2 GPS Map simulation
   const vehiclePosition = useMemo(() => {
     if (!routeResult || routeResult.path.length === 0) {
@@ -1775,6 +2043,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     vehiclePosition,
     routeResult,
     cameraFollowTruck,
+    activeTool,
+    customObstacles,
+    selectedObstacleId,
   });
 
   // Sync references
@@ -1791,7 +2062,10 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     stateRef.current.vehiclePosition = vehiclePosition;
     stateRef.current.routeResult = routeResult;
     stateRef.current.cameraFollowTruck = cameraFollowTruck;
-  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck]);
+    stateRef.current.activeTool = activeTool;
+    stateRef.current.customObstacles = customObstacles;
+    stateRef.current.selectedObstacleId = selectedObstacleId;
+  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck, activeTool, customObstacles, selectedObstacleId]);
 
   // Dynamic viewBox for SVG mini-map to zoom fit wayfinding path
   const svgViewBox = useMemo(() => {
@@ -2421,6 +2695,68 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               </Group>
             );
           })}
+
+          {/* Render custom obstacles on Konva map */}
+          {customObstacles.map(obs => {
+            const isSelected = obs.id === selectedObstacleId;
+            const px = isMobile ? obs.projY : obs.projX;
+            const py = isMobile ? obs.projX : obs.projY;
+            return (
+              <Circle
+                key={obs.id}
+                x={px}
+                y={py}
+                radius={isSelected ? 10 : 8}
+                fill={isSelected ? '#a855f7' : '#ef4444'}
+                stroke="#ffffff"
+                strokeWidth={1.5}
+                draggable={true}
+                onDragEnd={(e: any) => {
+                  const dx = e.target.x() - px;
+                  const dy = e.target.y() - py;
+                  e.target.position({ x: 0, y: 0 });
+                  
+                  const newX = isMobile ? obs.projX + dy : obs.projX + dx;
+                  const newY = isMobile ? obs.projY + dx : obs.projY + dy;
+                  
+                  const proj = projectObstacleToNearestPath(newX, newY);
+                  if (proj.pathId) {
+                    setCustomObstacles(prev => prev.map(o => {
+                      if (o.id === obs.id) {
+                        return {
+                          ...o,
+                          x: newX,
+                          y: newY,
+                          pathId: proj.pathId,
+                          projX: proj.projX,
+                          projY: proj.projY,
+                          segIndex: proj.segIndex,
+                          t: proj.t
+                        };
+                      }
+                      return o;
+                    }));
+                  }
+                }}
+                onClick={(e: any) => {
+                  e.cancelBubble = true;
+                  setSelectedObstacleId(obs.id);
+                  setSelectedNodeId(null);
+                  setSelectedPathId(null);
+                  setSelectedObstacle(null);
+                  setActiveAdminTab('details');
+                }}
+                onTap={(e: any) => {
+                  e.cancelBubble = true;
+                  setSelectedObstacleId(obs.id);
+                  setSelectedNodeId(null);
+                  setSelectedPathId(null);
+                  setSelectedObstacle(null);
+                  setActiveAdminTab('details');
+                }}
+              />
+            );
+          })}
         </Layer>
       </Stage>
     );
@@ -2845,6 +3181,22 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                             r={isActive ? 6 : 4}
                             fill={node.id === startNode ? '#22c55e' : node.id === endNode ? '#ef4444' : nodeColor}
                             stroke="#000"
+                            strokeWidth={1}
+                          />
+                        );
+                      })}
+
+                      {/* Render custom obstacles on SVG map */}
+                      {customObstacles.map(obs => {
+                        const isSelected = obs.id === selectedObstacleId;
+                        return (
+                          <circle
+                            key={obs.id}
+                            cx={obs.projX}
+                            cy={obs.projY}
+                            r={isSelected ? 6 : 4}
+                            fill={isSelected ? '#a855f7' : '#ef4444'}
+                            stroke="#ffffff"
                             strokeWidth={1}
                           />
                         );
@@ -3303,7 +3655,40 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                 {/* Selected Details Tab */}
                 <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
                   {activeAdminTab === 'details' && (
-                    selectedObstacle ? (() => {
+                    selectedObstacleId ? (() => {
+                      const obs = customObstacles.find(o => o.id === selectedObstacleId);
+                      if (!obs) return null;
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '12px' }}>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: '#ef4444' }}>
+                            🛑 VẬT CẢN TÙY CHỌN 3D
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: 1.4, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span>Tuyến: <strong>{obs.pathId}</strong></span>
+                            <span>Tọa độ: X: {obs.projX.toFixed(1)}, Y: {obs.projY.toFixed(1)}</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setCustomObstacles(prev => prev.filter(o => o.id !== selectedObstacleId));
+                              setSelectedObstacleId(null);
+                            }}
+                            style={{
+                              backgroundColor: '#ef4444',
+                              border: 'none',
+                              borderRadius: '8px',
+                              color: '#ffffff',
+                              padding: '12px',
+                              fontSize: '12px',
+                              fontWeight: 'bold',
+                              cursor: 'pointer',
+                              boxShadow: '0 4px 6px -1px rgba(239, 68, 68, 0.25)',
+                            }}
+                          >
+                            🗑️ XÓA VẬT CẢN
+                          </button>
+                        </div>
+                      );
+                    })() : selectedObstacle ? (() => {
                       const path = paths.find(p => p.id === selectedObstacle.pathId);
                       if (!path) return null;
                       const fromNode = DEFAULT_NODES[path.from];
