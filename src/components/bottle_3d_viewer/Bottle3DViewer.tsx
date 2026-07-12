@@ -797,6 +797,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const truckMeshRef = useRef<THREE.Group | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<any | null>(null);
+  const targetCameraPosRef = useRef<THREE.Vector3 | null>(null);
+  const targetControlsTargetRef = useRef<THREE.Vector3 | null>(null);
   const lastRouteKeyRef = useRef<string>('');
   const hasSnappedRef = useRef<boolean>(false);
   const navStartTimeRef = useRef<Date>(new Date());
@@ -1052,6 +1054,11 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     controls.target.set(0, 100, 0);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
+    
+    controls.addEventListener('start', () => {
+      targetCameraPosRef.current = null;
+      targetControlsTargetRef.current = null;
+    });
     controls.minDistance = 100.0;
     controls.maxDistance = 4000.0;
     controls.maxPolarAngle = Math.PI / 2 + 0.1; // Limit below ground plane
@@ -1362,6 +1369,22 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
+
+      // Smooth Camera transitions (Lerp)
+      if (targetCameraPosRef.current) {
+        camera.position.lerp(targetCameraPosRef.current, 0.08);
+        if (camera.position.distanceTo(targetCameraPosRef.current) < 1.0) {
+          camera.position.copy(targetCameraPosRef.current);
+          targetCameraPosRef.current = null;
+        }
+      }
+      if (targetControlsTargetRef.current) {
+        controls.target.lerp(targetControlsTargetRef.current, 0.08);
+        if (controls.target.distanceTo(targetControlsTargetRef.current) < 1.0) {
+          controls.target.copy(targetControlsTargetRef.current);
+          targetControlsTargetRef.current = null;
+        }
+      }
 
       // A. Dynamic material updates
       if (bottleMesh) {
@@ -3180,7 +3203,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             {/* Vertical Camera Control Toolbar (Left Side) */}
             <div style={{
               position: 'absolute',
-              top: '80px',
+              top: '50%',
+              transform: 'translateY(-50%)',
               left: '12px',
               display: 'flex',
               flexDirection: 'column',
@@ -3188,29 +3212,47 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               zIndex: 10,
             }}>
               {/* Navigation Controls */}
-              <button onClick={() => handleMoveCamera('up')} style={styles.camToolBtn} title="Move Camera Up">🔼</button>
-              <button onClick={() => handleMoveCamera('down')} style={styles.camToolBtn} title="Move Camera Down">🔽</button>
-              <button onClick={() => handleMoveCamera('left')} style={styles.camToolBtn} title="Move Camera Left">◀️</button>
-              <button onClick={() => handleMoveCamera('right')} style={styles.camToolBtn} title="Move Camera Right">▶️</button>
+              <button onClick={() => handleMoveCamera('up')} style={styles.camToolBtn} title="Move Camera Up">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+              </button>
+              <button onClick={() => handleMoveCamera('down')} style={styles.camToolBtn} title="Move Camera Down">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <button onClick={() => handleMoveCamera('left')} style={styles.camToolBtn} title="Move Camera Left">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              </button>
+              <button onClick={() => handleMoveCamera('right')} style={styles.camToolBtn} title="Move Camera Right">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </button>
               
               <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
               
               {/* Zoom Controls */}
-              <button onClick={() => handleZoomCamera('in')} style={styles.camToolBtn} title="Zoom In">🔍⁺</button>
-              <button onClick={() => handleZoomCamera('out')} style={styles.camToolBtn} title="Zoom Out">🔍⁻</button>
+              <button onClick={() => handleZoomCamera('in')} style={{ ...styles.camToolBtn, fontSize: '18px', fontWeight: 'bold' }} title="Zoom In">+</button>
+              <button onClick={() => handleZoomCamera('out')} style={{ ...styles.camToolBtn, fontSize: '20px', fontWeight: 'bold' }} title="Zoom Out">-</button>
               
               <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
               
               {/* Corner Views */}
-              <button onClick={() => handleSetCornerView('NW')} style={styles.camToolBtn} title="North-West Corner View">↖️</button>
-              <button onClick={() => handleSetCornerView('NE')} style={styles.camToolBtn} title="North-East Corner View">↗️</button>
-              <button onClick={() => handleSetCornerView('SW')} style={styles.camToolBtn} title="South-West Corner View">↙️</button>
-              <button onClick={() => handleSetCornerView('SE')} style={styles.camToolBtn} title="South-East Corner View">↘️</button>
+              <button onClick={() => handleSetCornerView('NW')} style={styles.camToolBtn} title="North-West Corner View">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="19" x2="5" y2="5"></line><polyline points="12 5 5 5 5 12"></polyline></svg>
+              </button>
+              <button onClick={() => handleSetCornerView('NE')} style={styles.camToolBtn} title="North-East Corner View">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="19" x2="19" y2="5"></line><polyline points="12 5 19 5 19 12"></polyline></svg>
+              </button>
+              <button onClick={() => handleSetCornerView('SW')} style={styles.camToolBtn} title="South-West Corner View">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="5" x2="5" y2="19"></line><polyline points="12 19 5 19 5 12"></polyline></svg>
+              </button>
+              <button onClick={() => handleSetCornerView('SE')} style={styles.camToolBtn} title="South-East Corner View">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="5" x2="19" y2="19"></line><polyline points="12 19 19 19 19 12"></polyline></svg>
+              </button>
               
               <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
               
               {/* Plan (Top-down) View */}
-              <button onClick={() => handleSetPlanView()} style={styles.camToolBtn} title="Plan View (Top-Down)">🗺️</button>
+              <button onClick={() => handleSetPlanView()} style={styles.camToolBtn} title="Plan View (Top-Down)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line></svg>
+              </button>
             </div>
 
             <div style={styles.floatingControls}>
