@@ -1481,7 +1481,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           if (child.userData && child.userData.isGatePin) {
             const dist = camera.position.distanceTo(child.position);
             const factor = Math.max(0.15, Math.min(2.5, dist / 500));
-            const targetPinScale = 0.2 * factor;
+            const targetPinScale = 1.0 * factor;
             child.scale.set(targetPinScale, targetPinScale, targetPinScale);
           }
         });
