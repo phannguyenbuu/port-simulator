@@ -960,7 +960,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         const fromId = path[i];
         const toId = path[i + 1];
         
-        const pathObj = paths.find(p => 
+        const currentPaths = stateRef.current.paths || [];
+        const pathObj = currentPaths.find(p => 
           (p.from === fromId && p.to === toId) || 
           (p.from === toId && p.to === fromId)
         );
@@ -1271,7 +1272,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
             const posX = node.y;
             const posZ = node.x;
-            pinClone.scale.set(1, 1, 1);
+            pinClone.scale.set(0.2, 0.2, 0.2);
             pinClone.position.set(posX, 0, posZ);
             routeGroup.add(pinClone);
             loadedObjectsCount++;
@@ -2451,6 +2452,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     customObstacles,
     selectedObstacleId,
     nodes,
+    paths,
     navSpeed
   });
 
@@ -2472,8 +2474,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     stateRef.current.customObstacles = customObstacles;
     stateRef.current.selectedObstacleId = selectedObstacleId;
     stateRef.current.nodes = nodes;
+    stateRef.current.paths = paths;
     stateRef.current.navSpeed = navSpeed;
-  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck, activeTool, customObstacles, selectedObstacleId, nodes, navSpeed]);
+  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck, activeTool, customObstacles, selectedObstacleId, nodes, paths, navSpeed]);
 
   // Dynamic viewBox for SVG mini-map to zoom fit wayfinding path
   const svgViewBox = useMemo(() => {
