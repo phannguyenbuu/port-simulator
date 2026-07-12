@@ -815,15 +815,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       // 1. Process General Port Layout
       generalObj.scale.set(1000, 1000, 1000);
 
-      const generalBox = new THREE.Box3().setFromObject(generalObj);
-      const generalCenter = generalBox.getCenter(new THREE.Vector3());
-      const posY = -generalBox.min.y;
-
-      generalObj.position.set(
-        -generalCenter.x,
-        posY,
-        -generalCenter.z
-      );
+      generalObj.position.set(0, 0, 0);
 
       generalObj.traverse((child) => {
         if (child instanceof THREE.Mesh) {
