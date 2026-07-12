@@ -928,12 +928,12 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           (p.from === toId && p.to === fromId)
         );
         
-        const fNode = DEFAULT_NODES[fromId];
-        const tNode = DEFAULT_NODES[toId];
-        if (!fNode || !tNode) continue;
+        const fCoords = getNodeCoordinates(fromId);
+        const tCoords = getNodeCoordinates(toId);
+        if (!fCoords || !tCoords) continue;
         
         if (i === 0) {
-          pts.push({ x: fNode.x, y: fNode.y });
+          pts.push({ x: fCoords.x, y: fCoords.y });
         }
         
         if (pathObj && pathObj.points && pathObj.points.length > 0) {
@@ -944,7 +944,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           });
         }
         
-        pts.push({ x: tNode.x, y: tNode.y });
+        pts.push({ x: tCoords.x, y: tCoords.y });
       }
       return pts;
     };
@@ -2185,12 +2185,12 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         (p.from === fromId && p.to === toId) || 
         (p.from === toId && p.to === fromId)
       );
-      const fNode = DEFAULT_NODES[fromId];
-      const tNode = DEFAULT_NODES[toId];
-      if (!fNode || !tNode) continue;
+      const fCoords = getNodeCoordinates(fromId);
+      const tCoords = getNodeCoordinates(toId);
+      if (!fCoords || !tCoords) continue;
       
       if (i === 0) {
-        pts.push({ x: fNode.x, y: fNode.y });
+        pts.push({ x: fCoords.x, y: fCoords.y });
       }
       
       if (pathObj && pathObj.points && pathObj.points.length > 0) {
@@ -2200,7 +2200,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           pts.push({ x: p[0], y: p[1] });
         });
       }
-      pts.push({ x: tNode.x, y: tNode.y });
+      pts.push({ x: tCoords.x, y: tCoords.y });
     }
 
     // Calculate cumulative distances
