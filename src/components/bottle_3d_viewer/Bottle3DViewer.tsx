@@ -1620,7 +1620,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         }
       }
 
-      controls.update();
+      if (!targetCameraPosRef.current && !targetControlsTargetRef.current) {
+        controls.update();
+      }
       renderer.render(scene, camera);
 
       const infoBadge = document.getElementById('camera-info-badge');
