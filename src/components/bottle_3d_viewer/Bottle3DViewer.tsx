@@ -1250,7 +1250,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       truckMeshRef.current = truckClone;
 
       const routeGroup = new THREE.Group();
-      routeGroup.position.set(0, 1.0, 0); // raised by 1 unit to float above generalObj
+      routeGroup.position.set(0, 0.1, 0); // raised by 0.1 unit to float above generalObj
 
       let loadedObjectsCount = 0;
       if (pinObj) {
@@ -1343,12 +1343,12 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       mainGroup.add(routeGroup);
 
       const wayfindingGroup = new THREE.Group();
-      wayfindingGroup.position.y = 1.1; // Float slightly above the roads
+      wayfindingGroup.position.y = 0.1; // Float slightly above the roads
       mainGroup.add(wayfindingGroup);
       wayfindingGroupRef.current = wayfindingGroup;
 
       const obstaclesGroup = new THREE.Group();
-      obstaclesGroup.position.y = 1.1; // Float slightly above the roads
+      obstaclesGroup.position.y = 0.1; // Float slightly above the roads
       mainGroup.add(obstaclesGroup);
       obstaclesGroupRef.current = obstaclesGroup;
       pinObjRef.current = pinObj;
@@ -1558,7 +1558,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           // Translate 2D map to 3D scene: X -> Z, Y -> X
           const truckX = vPos.y;
           const truckZ = vPos.x;
-          const truckY = 2.0; // Raise slightly above the road
+          const truckY = 0.0; // Raise slightly above the road
           
           truckMesh.position.set(truckX, truckY, truckZ);
           
@@ -1606,7 +1606,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               : (DEFAULT_NODES[startNodeId] ? { x: DEFAULT_NODES[startNodeId].x, y: DEFAULT_NODES[startNodeId].y } : null);
             
             if (startCoords) {
-              truckMesh.position.set(startCoords.y, 2.0, startCoords.x);
+              truckMesh.position.set(startCoords.y, 0.0, startCoords.x);
               
               if (route.path.length > 1) {
                 const nextNodeId = route.path[1];
