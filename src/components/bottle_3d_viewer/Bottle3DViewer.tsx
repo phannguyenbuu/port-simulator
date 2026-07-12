@@ -1563,7 +1563,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           truckMesh.position.set(truckX, truckY, truckZ);
           
           // Rotate truck to point along the route
-          const rad = (90 - vPos.angle) * Math.PI / 180;
+          const rad = (90 + vPos.angle) * Math.PI / 180;
           truckMesh.rotation.y = rad;
           
           // Camera follow mode
@@ -3539,13 +3539,13 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         {/* Simulation Interval Speed Slider */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>TRUCK SPEED (Port Limit: 40 km/h)</span>
+                            <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>TRUCK SPEED (Port Limit: 100 km/h)</span>
                             <span style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 'bold' }}>{navSpeed} km/h</span>
                           </div>
                           <input
                             type="range"
                             min="5"
-                            max="40"
+                            max="100"
                             value={navSpeed}
                             onChange={(e) => setNavSpeed(Number(e.target.value))}
                             style={{
@@ -3656,13 +3656,13 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                     {/* Live Speed Adjustment Slider during Navigation */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderTop: '1px solid #334155', paddingTop: '10px', marginTop: '4px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>ADJUST SPEED (Port Limit: 40 km/h)</span>
+                        <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>ADJUST SPEED (Port Limit: 100 km/h)</span>
                         <span style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 'bold' }}>{navSpeed} km/h</span>
                       </div>
                       <input
                         type="range"
                         min="5"
-                        max="40"
+                        max="100"
                         value={navSpeed}
                         onChange={(e) => setNavSpeed(Number(e.target.value))}
                         style={{
