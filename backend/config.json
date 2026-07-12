@@ -1,4 +1,4 @@
-export const routeData = {
+{
   "nodes": {
     "gate_1": {
       "id": "gate_1",
@@ -683,4 +683,4 @@ export const routeData = {
       "obstacleEnd": false
     }
   ]
-};
+}

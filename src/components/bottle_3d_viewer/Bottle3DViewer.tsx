@@ -747,12 +747,15 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const [navProgress, setNavProgress] = useState<number>(0);
   const [isNavigating, setIsNavigating] = useState<boolean>(false);
   const [animationOffset, setAnimationOffset] = useState<number>(0);
+  const [cameraFollowTruck, setCameraFollowTruck] = useState<boolean>(true);
+  const [navSpeed, setNavSpeed] = useState<number>(120); // ms per simulation tick
   
   const [visitStatus, setVisitStatus] = useState<'done' | 'failed' | 'skipped'>('done');
   const [visitNotes, setVisitNotes] = useState<string>('');
   const [isAudioMuted, setIsAudioMuted] = useState<boolean>(false);
   const sigCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const wayfindingGroupRef = useRef<THREE.Group | null>(null);
+  const truckMeshRef = useRef<THREE.Group | null>(null);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
 
   // Keep state references for requestAnimationFrame loop without triggering re-effects
@@ -765,6 +768,10 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     autoRotateSpeed,
     showWireframe,
     viewportTheme,
+    isNavigating,
+    vehiclePosition,
+    routeResult,
+    cameraFollowTruck,
   });
 
   // Sync references
@@ -777,7 +784,11 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     stateRef.current.autoRotateSpeed = autoRotateSpeed;
     stateRef.current.showWireframe = showWireframe;
     stateRef.current.viewportTheme = viewportTheme;
-  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme]);
+    stateRef.current.isNavigating = isNavigating;
+    stateRef.current.vehiclePosition = vehiclePosition;
+    stateRef.current.routeResult = routeResult;
+    stateRef.current.cameraFollowTruck = cameraFollowTruck;
+  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck]);
 
   // Update system time
   useEffect(() => {
@@ -839,10 +850,10 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         }
         return prev + 1; // Increment by 1% each tick
       });
-    }, 120);
+    }, navSpeed);
 
     return () => clearInterval(timer);
-  }, [isNavigating]);
+  }, [isNavigating, navSpeed]);
 
   // Load settings from LocalStorage when moldCode changes
   useEffect(() => {
@@ -1083,8 +1094,19 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       mainGroup.add(generalObj);
 
       const truckClone = truckObj.clone();
-      truckClone.position.set(2, 0, 0);
+      truckClone.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0xf59e0b, // Bright Amber truck
+            roughness: 0.4,
+            metalness: 0.8
+          });
+        }
+      });
+      truckClone.scale.set(4.0, 4.0, 4.0); // Make it clearly visible on the road
+      truckClone.position.set(0, -9999, 0); // Hide initially
       mainGroup.add(truckClone);
+      truckMeshRef.current = truckClone;
 
       const routeGroup = new THREE.Group();
       routeGroup.position.set(0, 1.0, 0); // raised by 1 unit to float above generalObj
@@ -1270,6 +1292,81 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             (child as any).texture.offset.x -= 0.015;
           }
         });
+      }
+
+      // D. Update truck simulation position & rotation in 3D
+      const truckMesh = truckMeshRef.current;
+      if (truckMesh) {
+        const isNav = stateRef.current.isNavigating;
+        const route = stateRef.current.routeResult;
+        const vPos = stateRef.current.vehiclePosition;
+        
+        if (isNav && route && route.path.length >= 2) {
+          truckMesh.visible = true;
+          // Translate 2D map to 3D scene: X -> Z, Y -> X
+          const truckX = vPos.y;
+          const truckZ = vPos.x;
+          const truckY = 2.0; // Raise slightly above the road
+          
+          truckMesh.position.set(truckX, truckY, truckZ);
+          
+          // Rotate truck to point along the route
+          const rad = (90 - vPos.angle) * Math.PI / 180;
+          truckMesh.rotation.y = rad;
+          
+          // Camera follow mode
+          if (stateRef.current.cameraFollowTruck) {
+            const forwardX = Math.sin(rad);
+            const forwardZ = Math.cos(rad);
+            
+            // Camera position: 60 units behind, 45 units above the truck
+            const camX = truckX - forwardX * 60;
+            const camY = truckY + 45;
+            const camZ = truckZ - forwardZ * 60;
+            
+            camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.05);
+            controls.target.lerp(new THREE.Vector3(truckX, truckY, truckZ), 0.05);
+          }
+        } else {
+          // If not navigating but there is a route, put truck at starting node
+          if (route && route.path.length > 0) {
+            truckMesh.visible = true;
+            const startNodeId = route.path[0];
+            const startCoords = route.nodesCoords && startNodeId in route.nodesCoords 
+              ? route.nodesCoords[startNodeId] 
+              : (DEFAULT_NODES[startNodeId] ? { x: DEFAULT_NODES[startNodeId].x, y: DEFAULT_NODES[startNodeId].y } : null);
+            
+            if (startCoords) {
+              truckMesh.position.set(startCoords.y, 2.0, startCoords.x);
+              
+              if (route.path.length > 1) {
+                const nextNodeId = route.path[1];
+                const nextCoords = route.nodesCoords && nextNodeId in route.nodesCoords
+                  ? route.nodesCoords[nextNodeId]
+                  : (DEFAULT_NODES[nextNodeId] ? { x: DEFAULT_NODES[nextNodeId].x, y: DEFAULT_NODES[nextNodeId].y } : null);
+                if (nextCoords) {
+                  const dx = nextCoords.y - startCoords.y;
+                  const dz = nextCoords.x - startCoords.x;
+                  truckMesh.rotation.y = Math.atan2(dz, dx);
+                }
+              }
+              
+              // If follow is checked, camera also centers on starting truck position
+              if (stateRef.current.cameraFollowTruck) {
+                const rad = truckMesh.rotation.y;
+                const forwardX = Math.sin(rad);
+                const forwardZ = Math.cos(rad);
+                const camX = startCoords.y - forwardX * 60;
+                const camY = 2.0 + 45;
+                const camZ = startCoords.x - forwardZ * 60;
+                camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.05);
+                controls.target.lerp(new THREE.Vector3(startCoords.y, 2.0, startCoords.x), 0.05);
+              }
+            }
+          } else {
+            truckMesh.visible = false;
+          }
+        }
       }
 
       controls.update();
@@ -1644,7 +1741,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     texture.repeat.set(Math.max(1, totalLength / 20), 1); // 1 arrow every 20 units
 
     const material = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8, // Blue animated path
+      color: 0xf97316, // Orange animated path
       map: texture,
       transparent: true,
       opacity: 0.95,
@@ -2224,7 +2321,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                     sides={3}
                     radius={isMobile ? 5 : 4}
                     rotation={arrow.angle + 90}
-                    fill="#38bdf8"
+                    fill="#f97316"
                     stroke="#ffffff"
                     strokeWidth={1}
                   />
@@ -2557,16 +2654,41 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                   {/* Actions Bar */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {routeResult && (
-                      <button 
-                        onClick={() => {
-                          setMobileScreen('navigation');
-                          setNavProgress(0);
-                          setIsNavigating(true);
-                        }}
-                        style={styles.appNavigateBtn}
-                      >
-                        🚀 BẮT ĐẦU ĐIỀU HƯỚNG
-                      </button>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 4px' }}>
+                        <button 
+                          onClick={() => {
+                            setMobileScreen('navigation');
+                            setNavProgress(0);
+                            setIsNavigating(true);
+                          }}
+                          style={styles.appNavigateBtn}
+                        >
+                          🚀 BẮT ĐẦU ĐIỀU HƯỚNG
+                        </button>
+                        
+                        {/* Simulation Interval Speed Slider */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>TỐC ĐỘ MÔ PHỎNG (Interval)</span>
+                            <span style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 'bold' }}>{navSpeed} ms</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="20"
+                            max="500"
+                            value={navSpeed}
+                            onChange={(e) => setNavSpeed(Number(e.target.value))}
+                            style={{
+                              width: '100%',
+                              accentColor: '#38bdf8',
+                              background: '#1e293b',
+                              height: '4px',
+                              borderRadius: '2px',
+                              cursor: 'pointer'
+                            }}
+                          />
+                        </div>
+                      </div>
                     )}
 
                   </div>
@@ -2698,7 +2820,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                               <path
                                 key={idx}
                                 d="M-5,-4 L5,0 L-5,4 Z"
-                                fill="#38bdf8"
+                                fill="#f97316"
                                 stroke="#ffffff"
                                 strokeWidth={1}
                                 transform={`translate(${arrow.x}, ${arrow.y}) rotate(${arrow.angle})`}
@@ -2794,6 +2916,19 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         <span>{routeResult ? (routeResult.distance * (1 - navProgress/100)).toFixed(1) : 0} m</span>
                       </div>
                     </div>
+
+                    {/* Camera follow mode control */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', marginBottom: '4px' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={cameraFollowTruck} 
+                        onChange={(e) => setCameraFollowTruck(e.target.checked)}
+                        style={{ width: '15px', height: '15px', accentColor: '#38bdf8', cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '11px', color: '#cbd5e1', fontWeight: 500 }}>
+                        🎥 Khóa camera bám theo xe tải (3D Follow)
+                      </span>
+                    </label>
 
                     {/* Progress Bar slider */}
                     <div style={{ width: '100%', height: '4px', backgroundColor: '#334155', borderRadius: '2px', overflow: 'hidden', position: 'relative' }}>
