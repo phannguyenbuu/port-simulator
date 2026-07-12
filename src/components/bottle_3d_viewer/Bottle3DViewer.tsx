@@ -1505,7 +1505,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
       const container = mountRef.current;
       const material = new LineMaterial({
-        color: 0xff0000, // Red animated path
+        color: 0x38bdf8, // Blue animated path
         map: texture,
         useMap: true,
         linewidth: 7, // Highly visible
@@ -1832,7 +1832,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                 <KonvaText
                   x={midX - 10}
                   y={midY - 10}
-                  text={`${path.weight}m`}
+                  text={`${Number(path.weight).toFixed(1)}m`}
                   fontSize={10}
                   fill={isMobile ? '#1e293b' : '#cbd5e1'}
                   fontStyle="bold"
@@ -2456,7 +2456,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                           <polyline
                             points={points.join(' ')}
                             fill="none"
-                            stroke="#ff0000"
+                            stroke="#38bdf8"
                             strokeWidth={5}
                             strokeLinecap="round"
                             strokeLinejoin="round"
