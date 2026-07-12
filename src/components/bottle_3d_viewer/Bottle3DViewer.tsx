@@ -923,6 +923,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     if (!mountRef.current) return;
 
     let lineMaterials: any[] = [];
+    let handlePointerDown: (e: PointerEvent) => void;
+    let handlePointerMove: (e: PointerEvent) => void;
+    let handlePointerUp: (e: PointerEvent) => void;
     const container = mountRef.current;
     const width = container.clientWidth || 600;
     const height = container.clientHeight || 500;
@@ -1432,7 +1435,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     let draggedObstacleId: string | null = null;
     let dragStartPos = { x: 0, y: 0 };
 
-    const handlePointerDown = (e: PointerEvent) => {
+    handlePointerDown = (e: PointerEvent) => {
       if (!obstaclesGroupRef.current) return;
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1453,7 +1456,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       }
     };
 
-    const handlePointerMove = (e: PointerEvent) => {
+    handlePointerMove = (e: PointerEvent) => {
       if (!draggedObstacleId) return;
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1487,7 +1490,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       }
     };
 
-    const handlePointerUp = (e: PointerEvent) => {
+    handlePointerUp = (e: PointerEvent) => {
       const dx = e.clientX - dragStartPos.x;
       const dy = e.clientY - dragStartPos.y;
       const dragDist = Math.hypot(dx, dy);
@@ -1570,9 +1573,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       obstaclesGroupRef.current = null;
       
       if (renderer.domElement) {
-        renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
-        renderer.domElement.removeEventListener('pointermove', handlePointerMove);
-        renderer.domElement.removeEventListener('pointerup', handlePointerUp);
+        if (handlePointerDown) renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+        if (handlePointerMove) renderer.domElement.removeEventListener('pointermove', handlePointerMove);
+        if (handlePointerUp) renderer.domElement.removeEventListener('pointerup', handlePointerUp);
       }
       obstaclesGroupRef.current = null;
       
