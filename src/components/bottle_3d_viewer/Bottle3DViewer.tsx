@@ -2177,10 +2177,10 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                             backgroundColor: '#38bdf8',
                           }} />
 
-                          {routeResult.path.map((nodeId, idx) => {
+                          {routeResult.path.filter(id => id in DEFAULT_NODES).map((nodeId, idx, arr) => {
                             const node = DEFAULT_NODES[nodeId];
                             const isFirst = idx === 0;
-                            const isLast = idx === routeResult.path.length - 1;
+                            const isLast = idx === arr.length - 1;
                             
                             return (
                               <div key={nodeId} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', position: 'relative' }}>
@@ -2322,8 +2322,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                       {routeResult && routeResult.path.length >= 2 && (() => {
                         const points: string[] = [];
                         routeResult.path.forEach(nodeId => {
-                          const node = DEFAULT_NODES[nodeId];
-                          points.push(`${node.x},${node.y}`);
+                          const coords = getNodeCoordinates(nodeId);
+                          points.push(`${coords.x},${coords.y}`);
                         });
                         return (
                           <polyline
