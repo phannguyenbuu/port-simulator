@@ -1552,27 +1552,34 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           lastRouteKeyRef.current = '';
         }
 
-        if (isNav && route && route.path.length >= 2 && currentRouteTotalLength > 0) {
+        const isNavScreen = stateRef.current.mobileScreen === 'navigation';
+
+        if (isNavScreen && route && route.path.length >= 2 && currentRouteTotalLength > 0) {
           truckMesh.visible = true;
           
           // Sync with manual progress slider seeking
           if (manualNavProgressRef.current !== null) {
             navDistance = (manualNavProgressRef.current / 100) * currentRouteTotalLength;
             manualNavProgressRef.current = null;
+            if (stateRef.current.cameraFollowTruck) {
+              hasSnappedRef.current = false; // Trigger camera re-snap to center/zoom on truck
+            }
           }
           
-          // Increment simulation distance smoothly based on dt and speed (km/h)
-          const speedMps = stateRef.current.navSpeed * 0.27778; // Convert km/h to m/s
-          navDistance += speedMps * dt;
-          
-          if (navDistance >= currentRouteTotalLength) {
-            navDistance = currentRouteTotalLength;
-            setIsNavigating(false); // Stop simulation when done
+          // Increment simulation distance smoothly based on dt and speed (km/h) only if actively playing
+          if (isNav) {
+            const speedMps = stateRef.current.navSpeed * 0.27778; // Convert km/h to m/s
+            navDistance += speedMps * dt;
+            
+            if (navDistance >= currentRouteTotalLength) {
+              navDistance = currentRouteTotalLength;
+              setIsNavigating(false); // Stop simulation when done
+            }
+            
+            // Smoothly update progress percentage (as a float for ultra-smooth 2D maps)
+            const currentProgress = currentRouteTotalLength > 0 ? (navDistance / currentRouteTotalLength) * 100 : 0;
+            setNavProgress(isNaN(currentProgress) ? 0 : currentProgress);
           }
-          
-          // Smoothly update progress percentage (as a float for ultra-smooth 2D maps)
-          const currentProgress = currentRouteTotalLength > 0 ? (navDistance / currentRouteTotalLength) * 100 : 0;
-          setNavProgress(isNaN(currentProgress) ? 0 : currentProgress);
           
           // Interpolate smooth position and heading angle based on cumulative distance
           const vPos = getPositionAndAngleAtDistance(currentRoutePoints, currentRouteDists, navDistance);
@@ -1595,10 +1602,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             const targetZ = truckZ;
             
             if (!hasSnappedRef.current) {
-              // First time starting navigation: reset variables, zoom close, and point forward!
-              navDistance = 0;
-              const freshVPos = getPositionAndAngleAtDistance(currentRoutePoints, currentRouteDists, 0);
-              const freshRad = (90 - freshVPos.angle) * Math.PI / 180;
+              // Zoom close, and point forward!
+              const freshVPos = getPositionAndAngleAtDistance(currentRoutePoints, currentRouteDists, navDistance);
+              const freshRad = (90 + freshVPos.angle) * Math.PI / 180;
               const forwardX = Math.cos(freshRad);
               const forwardZ = Math.sin(freshRad);
               
@@ -2475,7 +2481,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     selectedObstacleId,
     nodes,
     paths,
-    navSpeed
+    navSpeed,
+    mobileScreen
   });
 
   // Sync references
@@ -2498,7 +2505,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     stateRef.current.nodes = nodes;
     stateRef.current.paths = paths;
     stateRef.current.navSpeed = navSpeed;
-  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck, activeTool, customObstacles, selectedObstacleId, nodes, paths, navSpeed]);
+    stateRef.current.mobileScreen = mobileScreen;
+  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck, activeTool, customObstacles, selectedObstacleId, nodes, paths, navSpeed, mobileScreen]);
 
   // Dynamic viewBox for SVG mini-map to zoom fit wayfinding path
   const svgViewBox = useMemo(() => {
@@ -3555,6 +3563,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                           onClick={() => {
                             setMobileScreen('navigation');
                             setNavProgress(0);
+                            manualNavProgressRef.current = 0;
                             navStartTimeRef.current = new Date();
                             setIsNavigating(true);
                           }}
