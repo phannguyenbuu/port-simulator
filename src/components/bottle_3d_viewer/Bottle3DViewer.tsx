@@ -850,6 +850,15 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   useEffect(() => {
     if (!isNavigating) return;
 
+    // Trigger immediate first progress tick to avoid start delay
+    setNavProgress(prev => {
+      if (prev >= 100) {
+        setIsNavigating(false);
+        return 100;
+      }
+      return prev + 0.5; // Start moving immediately
+    });
+
     const timer = setInterval(() => {
       setNavProgress(prev => {
         if (prev >= 100) {
@@ -1328,18 +1337,15 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           const rad = (90 - vPos.angle) * Math.PI / 180;
           truckMesh.rotation.y = rad;
           
-          // Camera follow mode
+          // Camera follow mode: only lock target, do not lock rotation and zoom factor!
           if (stateRef.current.cameraFollowTruck) {
-            const forwardX = Math.sin(rad);
-            const forwardZ = Math.cos(rad);
+            const targetX = truckX;
+            const targetY = truckY;
+            const targetZ = truckZ;
             
-            // Camera position: 60 units behind, 45 units above the truck
-            const camX = truckX - forwardX * 60;
-            const camY = truckY + 45;
-            const camZ = truckZ - forwardZ * 60;
-            
-            camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.05);
-            controls.target.lerp(new THREE.Vector3(truckX, truckY, truckZ), 0.05);
+            const targetDelta = new THREE.Vector3(targetX, targetY, targetZ).sub(controls.target);
+            camera.position.add(targetDelta);
+            controls.target.set(targetX, targetY, targetZ);
           }
         } else {
           // If not navigating but there is a route, put truck at starting node
@@ -1367,14 +1373,13 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               
               // If follow is checked, camera also centers on starting truck position
               if (stateRef.current.cameraFollowTruck) {
-                const rad = truckMesh.rotation.y;
-                const forwardX = Math.sin(rad);
-                const forwardZ = Math.cos(rad);
-                const camX = startCoords.y - forwardX * 60;
-                const camY = 2.0 + 45;
-                const camZ = startCoords.x - forwardZ * 60;
-                camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.05);
-                controls.target.lerp(new THREE.Vector3(startCoords.y, 2.0, startCoords.x), 0.05);
+                const targetX = startCoords.y;
+                const targetY = 2.0;
+                const targetZ = startCoords.x;
+                
+                const targetDelta = new THREE.Vector3(targetX, targetY, targetZ).sub(controls.target);
+                camera.position.add(targetDelta);
+                controls.target.set(targetX, targetY, targetZ);
               }
             }
           } else {
@@ -3001,13 +3006,13 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                           }}
                           style={styles.appNavigateBtn}
                         >
-                          🚀 BẮT ĐẦU ĐIỀU HƯỚNG
+                          🚀 START NAVIGATION
                         </button>
                         
                         {/* Simulation Interval Speed Slider */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>TỐC ĐỘ MÔ PHỎNG (Interval)</span>
+                            <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>SIMULATION INTERVAL SPEED</span>
                             <span style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 'bold' }}>{navSpeed} ms</span>
                           </div>
                           <input
@@ -3226,7 +3231,24 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                       <button style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(30,41,59,0.85)', border: '1px solid #334155', color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         🧭
                       </button>
-                      <button style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(30,41,59,0.85)', border: '1px solid #334155', color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <button 
+                        onClick={() => setCameraFollowTruck(!cameraFollowTruck)}
+                        style={{ 
+                          width: '32px', 
+                          height: '32px', 
+                          borderRadius: '50%', 
+                          backgroundColor: cameraFollowTruck ? 'rgba(56, 189, 248, 0.9)' : 'rgba(30,41,59,0.85)', 
+                          border: '1px solid #334155', 
+                          color: cameraFollowTruck ? '#0f172a' : '#cbd5e1', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          boxShadow: cameraFollowTruck ? '0 0 10px rgba(56, 189, 248, 0.5)' : 'none'
+                        }}
+                        title={cameraFollowTruck ? "Disable 3D Camera Follow" : "Enable 3D Camera Follow"}
+                      >
                         ⌖
                       </button>
                     </div>
@@ -3254,7 +3276,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>DỰ KIẾN ĐẾN</span>
+                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>ESTIMATED ARRIVAL (ETA)</span>
                         <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#ffffff' }}>
                           {(() => {
                             const now = new Date();
@@ -3265,7 +3287,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: '8px', fontSize: '12px', fontWeight: 600, color: '#38bdf8' }}>
-                        <span>Còn {routeResult ? Math.max(1, Math.round((routeResult.distance / 45) * (1 - navProgress/100))) : 0} phút</span>
+                        <span>{routeResult ? Math.max(1, Math.round((routeResult.distance / 45) * (1 - navProgress/100))) : 0} min remaining</span>
                         <span>•</span>
                         <span>{routeResult ? (routeResult.distance * (1 - navProgress/100)).toFixed(1) : 0} m</span>
                       </div>
@@ -3280,7 +3302,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         style={{ width: '15px', height: '15px', accentColor: '#38bdf8', cursor: 'pointer' }}
                       />
                       <span style={{ fontSize: '11px', color: '#cbd5e1', fontWeight: 500 }}>
-                        🎥 Khóa camera bám theo xe tải (3D Follow)
+                        🎥 Lock camera to truck (3D Follow)
                       </span>
                     </label>
 
@@ -3307,7 +3329,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                           cursor: 'pointer',
                         }}
                       >
-                        ✕ HỦY
+                        ✕ CANCEL
                       </button>
                       
                       <button
@@ -3328,7 +3350,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                           boxShadow: '0 4px 6px -1px rgba(34, 197, 94, 0.25)',
                         }}
                       >
-                        ✓ ĐÃ ĐẾN NƠI
+                        ✓ ARRIVED
                       </button>
                     </div>
                   </div>
@@ -3339,16 +3361,17 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               {mobileScreen === 'completion' && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#090d16', padding: '32px 16px 12px 16px', boxSizing: 'border-box', overflowY: 'auto' }}>
                   {/* Completion header */}
+                  {/* Completion header */}
                   <div style={{ display: 'flex', justifyItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #1e293b', paddingBottom: '12px', marginBottom: '16px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>Trạng Thái Điểm Đến</span>
+                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>Destination Status</span>
                     <button 
                       onClick={() => setMobileScreen('navigation')}
                       style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '11px' }}
                     >
-                      Quay lại
+                      Back
                     </button>
                   </div>
-
+ 
                   {/* Visit Status Buttons GRID (Done, Skipped, Failed) */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '16px' }}>
                     <button
@@ -3369,7 +3392,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                       }}
                     >
                       <span>✕</span>
-                      <span>THẤT BẠI</span>
+                      <span>FAILED</span>
                     </button>
                     <button
                       onClick={() => setVisitStatus('skipped')}
@@ -3389,7 +3412,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                       }}
                     >
                       <span>↶</span>
-                      <span>BỎ QUA</span>
+                      <span>SKIPPED</span>
                     </button>
                     <button
                       onClick={() => setVisitStatus('done')}
@@ -3409,19 +3432,19 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                       }}
                     >
                       <span>✓</span>
-                      <span>HOÀN THÀNH</span>
+                      <span>COMPLETED</span>
                     </button>
                   </div>
-
+ 
                   {/* Optional Tasks Checklist */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
                     {/* Notes field */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={styles.appLabel}>📝 Ghi chú (Notes)</label>
+                      <label style={styles.appLabel}>📝 Visit Notes</label>
                       <textarea
                         value={visitNotes}
                         onChange={(e) => setVisitNotes(e.target.value)}
-                        placeholder="Nhập ghi chú giao nhận hàng hoặc lý do..."
+                        placeholder="Enter delivery notes, issues or reasons..."
                         style={{
                           backgroundColor: '#0f172a',
                           border: '1px solid #1e293b',
@@ -3435,16 +3458,16 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         }}
                       />
                     </div>
-
+ 
                     {/* Interactive Signature block */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={styles.appLabel}>✍️ Ký xác nhận (Signature)</label>
+                        <label style={styles.appLabel}>✍️ Recipient Signature</label>
                         <button 
                           onClick={clearSignature}
                           style={{ background: 'none', border: 'none', color: '#38bdf8', fontSize: '10px', cursor: 'pointer' }}
                         >
-                          Xóa
+                          Clear
                         </button>
                       </div>
                       <canvas
@@ -3467,10 +3490,10 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         }}
                       />
                     </div>
-
+ 
                     {/* Photo checklist area */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={styles.appLabel}>📷 Ảnh chụp hiện trường</label>
+                      <label style={styles.appLabel}>📷 Site Photos</label>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         {/* Camera upload placeholder slot */}
                         <div style={{
@@ -3536,7 +3559,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                   {/* Confirm Submission green button */}
                   <button
                     onClick={() => {
-                      alert(`Đã gửi xác nhận: ${visitStatus.toUpperCase()}\nGhi chú: ${visitNotes}`);
+                      alert(`Submission successful: ${visitStatus.toUpperCase()}\nNotes: ${visitNotes}`);
                       setVisitNotes('');
                       clearSignature();
                       setMobileScreen('planning');
@@ -3554,7 +3577,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                       boxShadow: '0 4px 6px -1px rgba(34, 197, 94, 0.25)',
                     }}
                   >
-                    XÁC NHẬN HOÀN THÀNH
+                    CONFIRM VISIT COMPLETION
                   </button>
                 </div>
               )}
