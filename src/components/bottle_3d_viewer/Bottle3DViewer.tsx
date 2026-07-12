@@ -910,6 +910,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     let handlePointerDown: (e: PointerEvent) => void;
     let handlePointerMove: (e: PointerEvent) => void;
     let handlePointerUp: (e: PointerEvent) => void;
+    let generalObj: THREE.Group | null = null;
 
     let currentRoutePoints: { x: number; y: number }[] = [];
     let currentRouteDists: number[] = [];
@@ -1198,7 +1199,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       import('three/examples/jsm/lines/Line2.js'),
       import('three/examples/jsm/lines/LineGeometry.js'),
       import('three/examples/jsm/lines/LineMaterial.js')
-    ]).then(([generalObj, truckObj, pinObj, line2Module, geometryModule, materialModule]) => {
+    ]).then(([loadedGeneralObj, truckObj, pinObj, line2Module, geometryModule, materialModule]) => {
+      generalObj = loadedGeneralObj;
       const { Line2 } = line2Module;
       const { LineGeometry } = geometryModule;
       const { LineMaterial } = materialModule;
@@ -1274,6 +1276,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             const posZ = node.x;
             pinClone.scale.set(0.2, 0.2, 0.2);
             pinClone.position.set(posX, 0, posZ);
+            pinClone.userData = { isGatePin: true };
             routeGroup.add(pinClone);
             loadedObjectsCount++;
 
@@ -1468,6 +1471,18 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         wayfindingGroupRef.current.children.forEach(child => {
           if (child && (child as any).texture) {
             (child as any).texture.offset.x -= 0.015;
+          }
+        });
+      }
+
+      // Dynamic gate pin and label scaling based on camera distance (zoom level)
+      if (bottleMesh) {
+        bottleMesh.traverse((child) => {
+          if (child.userData && child.userData.isGatePin) {
+            const dist = camera.position.distanceTo(child.position);
+            const factor = Math.max(0.15, Math.min(2.5, dist / 500));
+            const targetPinScale = 0.2 * factor;
+            child.scale.set(targetPinScale, targetPinScale, targetPinScale);
           }
         });
       }
@@ -2746,6 +2761,11 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             
             const fromNode = isMobile ? { ...fNode, x: fNode.y, y: fNode.x } : fNode;
             const toNode = isMobile ? { ...tNode, x: tNode.y, y: tNode.x } : tNode;
+            
+            const oxStart = fromNode.x + (toNode.x - fromNode.x) * 0.25;
+            const oyStart = fromNode.y + (toNode.y - fromNode.y) * 0.25;
+            const oxEnd = fromNode.x + (toNode.x - fromNode.x) * 0.75;
+            const oyEnd = fromNode.y + (toNode.y - fromNode.y) * 0.75;
             
             const isSelected = path.id === selectedPathId;
             const isFullyBlocked = path.obstacleStart && path.obstacleEnd;
