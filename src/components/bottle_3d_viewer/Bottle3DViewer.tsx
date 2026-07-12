@@ -70,89 +70,274 @@ function findShortestPath(
   paths: PortPath[],
   startId: string,
   endId: string
-): { path: string[]; distance: number } | null {
-  if (startId === endId) return { path: [startId], distance: 0 };
+): { path: string[]; distance: number; nodesCoords: Record<string, { x: number; y: number }> } | null {
+  if (startId === endId) {
+    return {
+      path: [startId],
+      distance: 0,
+      nodesCoords: { [startId]: { x: nodes[startId].x, y: nodes[startId].y } }
+    };
+  }
 
-  // 1. Create a dynamic graph including both default nodes and obstacle nodes
-  const dynamicNodes: Record<string, PortNode> = { ...nodes };
-  const adj: Record<string, { to: string; weight: number }[]> = {};
-
-  // Initialize adjacency list for base nodes
-  Object.keys(nodes).forEach(id => {
-    adj[id] = [];
-  });
-
-  // 2. Process paths. Split paths that are under repair/have obstacles.
+  // 1. Projection of all nodes onto nearest path segments
+  // Construct the base sequence of points for each path
+  const pathBaseSequences: Record<string, { x: number; y: number; id: string }[]> = {};
   paths.forEach(p => {
     const fromNode = nodes[p.from];
     const toNode = nodes[p.to];
     if (!fromNode || !toNode) return;
 
-    const hasRepair = p.obstacleStart || p.obstacleEnd;
-    if (hasRepair) {
-      // Define positions for obstacle nodes (25% and 75%)
-      const obs1Id = `${p.id}_obs1`;
-      const obs2Id = `${p.id}_obs2`;
+    const seq = [];
+    seq.push({ x: fromNode.x, y: fromNode.y, id: p.from });
+    if (p.points && p.points.length > 0) {
+      p.points.forEach((pt, idx) => {
+        seq.push({ x: pt[0], y: pt[1], id: `${p.id}_pt_${idx}` });
+      });
+    }
+    seq.push({ x: toNode.x, y: toNode.y, id: p.to });
+    pathBaseSequences[p.id] = seq;
+  });
 
-      const dx = toNode.x - fromNode.x;
-      const dy = toNode.y - fromNode.y;
+  // Find the closest path segment for each gate node
+  const projections: Record<string, { gateId: string; segIndex: number; t: number; x: number; y: number }[]> = {};
+  paths.forEach(p => {
+    projections[p.id] = [];
+  });
 
-      // Add temporary obstacle nodes
-      dynamicNodes[obs1Id] = {
-        id: obs1Id,
-        name: `Vật cản 1 - ${p.id}`,
-        x: fromNode.x + dx * 0.25,
-        y: fromNode.y + dy * 0.25,
-        type: 'weigh_station' // dummy type
-      };
+  const gateProjNodes: Record<string, string> = {}; // gateId -> projNodeId
+  const projCoords: Record<string, { x: number; y: number }> = {};
 
-      dynamicNodes[obs2Id] = {
-        id: obs2Id,
-        name: `Vật cản 2 - ${p.id}`,
-        x: fromNode.x + dx * 0.75,
-        y: fromNode.y + dy * 0.75,
-        type: 'weigh_station' // dummy type
-      };
+  Object.keys(nodes).forEach(gateId => {
+    const G = nodes[gateId];
+    let bestDist = Infinity;
+    let bestPathId = '';
+    let bestSegIndex = -1;
+    let bestT = 0;
+    let bestProjX = 0;
+    let bestProjY = 0;
 
-      // Initialize adjacency list for temporary nodes
-      adj[obs1Id] = [];
-      adj[obs2Id] = [];
+    paths.forEach(p => {
+      const seq = pathBaseSequences[p.id];
+      if (!seq || seq.length < 2) return;
 
-      // Edge 1: Start node <-> Obs 1 (always open, weight = 25% of weight)
-      const w1 = Math.round(p.weight * 0.25);
-      adj[p.from].push({ to: obs1Id, weight: w1 });
-      adj[obs1Id].push({ to: p.from, weight: w1 });
-
-      // Edge 2: Obs 1 <-> Obs 2 (blocked only if both obstacleStart and obstacleEnd are true)
-      const isMiddleBlocked = p.obstacleStart && p.obstacleEnd;
-      if (!isMiddleBlocked) {
-        const w2 = Math.round(p.weight * 0.50);
-        adj[obs1Id].push({ to: obs2Id, weight: w2 });
-        adj[obs2Id].push({ to: obs1Id, weight: w2 });
+      // Skip projecting a gate onto a path if it is already an endpoint of that path to prevent self-projection
+      if (p.from === gateId || p.to === gateId) {
+        return;
       }
 
-      // Edge 3: Obs 2 <-> End node (always open, weight = 25% of weight)
-      const w3 = Math.round(p.weight * 0.25);
-      adj[obs2Id].push({ to: p.to, weight: w3 });
-      adj[p.to].push({ to: obs2Id, weight: w3 });
+      for (let i = 0; i < seq.length - 1; i++) {
+        const u = seq[i];
+        const v = seq[i+1];
 
-    } else {
-      // Normal path segment
-      adj[p.from].push({ to: p.to, weight: p.weight });
-      adj[p.to].push({ to: p.from, weight: p.weight });
+        // Project G onto segment u -> v
+        const dx = v.x - u.x;
+        const dy = v.y - u.y;
+        const ab_len2 = dx * dx + dy * dy;
+        if (ab_len2 === 0) continue;
+
+        let t = ((G.x - u.x) * dx + (G.y - u.y) * dy) / ab_len2;
+        t = Math.max(0, Math.min(1, t));
+
+        const px = u.x + t * dx;
+        const py = u.y + t * dy;
+        const dist = Math.hypot(G.x - px, G.y - py);
+
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestPathId = p.id;
+          bestSegIndex = i;
+          bestT = t;
+          bestProjX = px;
+          bestProjY = py;
+        }
+      }
+    });
+
+    // If G is not an endpoint of any path and we found a closest segment
+    // and the distance is > 0.1, we project G onto it
+    if (bestDist > 0.1 && bestPathId) {
+      const projNodeId = `${bestPathId}_proj_${gateId}`;
+      projections[bestPathId].push({
+        gateId,
+        segIndex: bestSegIndex,
+        t: bestT,
+        x: bestProjX,
+        y: bestProjY
+      });
+      gateProjNodes[gateId] = projNodeId;
+      projCoords[projNodeId] = { x: bestProjX, y: bestProjY };
     }
   });
 
-  // 3. Run Dijkstra on the dynamic graph
+  // 2. Build final segmented sequences for each path
+  const pathFinalSequences: Record<string, { x: number; y: number; id: string; isObs?: boolean }[]> = {};
+  const pathObsIndices: Record<string, { obs1Idx: number; obs2Idx: number }> = {};
+
+  paths.forEach(p => {
+    const baseSeq = pathBaseSequences[p.id];
+    if (!baseSeq || baseSeq.length < 2) return;
+
+    const projs = projections[p.id];
+    const projsBySeg: Record<number, typeof projs> = {};
+    projs.forEach(pr => {
+      if (!projsBySeg[pr.segIndex]) projsBySeg[pr.segIndex] = [];
+      projsBySeg[pr.segIndex].push(pr);
+    });
+
+    const segmentedSeq: { x: number; y: number; id: string }[] = [];
+    for (let i = 0; i < baseSeq.length; i++) {
+      segmentedSeq.push(baseSeq[i]);
+      if (projsBySeg[i]) {
+        projsBySeg[i].sort((a, b) => a.t - b.t);
+        projsBySeg[i].forEach(pr => {
+          segmentedSeq.push({
+            x: pr.x,
+            y: pr.y,
+            id: `${p.id}_proj_${pr.gateId}`
+          });
+        });
+      }
+    }
+
+    const hasObstacles = p.obstacleStart || p.obstacleEnd;
+    if (!hasObstacles) {
+      pathFinalSequences[p.id] = segmentedSeq;
+      pathObsIndices[p.id] = { obs1Idx: -1, obs2Idx: -1 };
+      return;
+    }
+
+    // Calculate cumulative distances
+    const dists: number[] = [0];
+    let total = 0;
+    for (let i = 0; i < segmentedSeq.length - 1; i++) {
+      const d = Math.hypot(segmentedSeq[i+1].x - segmentedSeq[i].x, segmentedSeq[i+1].y - segmentedSeq[i].y);
+      total += d;
+      dists.push(total);
+    }
+
+    const getInsertInfo = (pct: number, id: string) => {
+      const targetDist = total * pct;
+      for (let i = 0; i < dists.length - 1; i++) {
+        if (targetDist >= dists[i] && targetDist <= dists[i+1]) {
+          const segDist = dists[i+1] - dists[i];
+          const t = segDist === 0 ? 0 : (targetDist - dists[i]) / segDist;
+          return {
+            insertAfter: i,
+            x: segmentedSeq[i].x + t * (segmentedSeq[i+1].x - segmentedSeq[i].x),
+            y: segmentedSeq[i].y + t * (segmentedSeq[i+1].y - segmentedSeq[i].y),
+            id
+          };
+        }
+      }
+      return {
+        insertAfter: segmentedSeq.length - 2,
+        x: segmentedSeq[segmentedSeq.length - 1].x,
+        y: segmentedSeq[segmentedSeq.length - 1].y,
+        id
+      };
+    };
+
+    const obs1 = getInsertInfo(0.25, `${p.id}_obs1`);
+    const obs2 = getInsertInfo(0.75, `${p.id}_obs2`);
+
+    const finalSeq: typeof segmentedSeq = [];
+    let obs1Idx = -1;
+    let obs2Idx = -1;
+
+    for (let i = 0; i < segmentedSeq.length; i++) {
+      finalSeq.push(segmentedSeq[i]);
+      if (i === obs1.insertAfter && i === obs2.insertAfter) {
+        finalSeq.push({ x: obs1.x, y: obs1.y, id: obs1.id });
+        obs1Idx = finalSeq.length - 1;
+        finalSeq.push({ x: obs2.x, y: obs2.y, id: obs2.id });
+        obs2Idx = finalSeq.length - 1;
+      } else {
+        if (i === obs1.insertAfter) {
+          finalSeq.push({ x: obs1.x, y: obs1.y, id: obs1.id });
+          obs1Idx = finalSeq.length - 1;
+        }
+        if (i === obs2.insertAfter) {
+          finalSeq.push({ x: obs2.x, y: obs2.y, id: obs2.id });
+          obs2Idx = finalSeq.length - 1;
+        }
+      }
+    }
+
+    pathFinalSequences[p.id] = finalSeq;
+    pathObsIndices[p.id] = { obs1Idx, obs2Idx };
+  });
+
+  // 3. Build graph
+  const adj: Record<string, { to: string; weight: number }[]> = {};
+  const allNodesCoords: Record<string, { x: number; y: number }> = {};
+
+  const addVertex = (id: string, x: number, y: number) => {
+    if (!adj[id]) {
+      adj[id] = [];
+      allNodesCoords[id] = { x, y };
+    }
+  };
+
+  const addEdge = (u: string, v: string, w: number) => {
+    adj[u].push({ to: v, weight: w });
+    adj[v].push({ to: u, weight: w });
+  };
+
+  // Add all base nodes
+  Object.keys(nodes).forEach(id => {
+    addVertex(id, nodes[id].x, nodes[id].y);
+  });
+
+  // Add connections from gates to their projected road nodes
+  Object.keys(gateProjNodes).forEach(gateId => {
+    const projNodeId = gateProjNodes[gateId];
+    const coords = projCoords[projNodeId];
+    addVertex(projNodeId, coords.x, coords.y);
+    const w = Math.hypot(nodes[gateId].x - coords.x, nodes[gateId].y - coords.y);
+    addEdge(gateId, projNodeId, w);
+  });
+
+  // Add edges from paths
+  paths.forEach(p => {
+    if (p.underRepair) return;
+
+    const seq = pathFinalSequences[p.id];
+    if (!seq || seq.length < 2) return;
+
+    const { obs1Idx, obs2Idx } = pathObsIndices[p.id];
+    const isMiddleBlocked = p.obstacleStart && p.obstacleEnd;
+
+    for (let i = 0; i < seq.length - 1; i++) {
+      if (isMiddleBlocked && obs1Idx !== -1 && obs2Idx !== -1) {
+        if (i >= obs1Idx && i < obs2Idx) {
+          continue;
+        }
+      }
+
+      const u = seq[i];
+      const v = seq[i+1];
+
+      addVertex(u.id, u.x, u.y);
+      addVertex(v.id, v.x, v.y);
+
+      const w = Math.hypot(u.x - v.x, u.y - v.y);
+      addEdge(u.id, v.id, w);
+    }
+  });
+
+  // 4. Run Dijkstra
   const distances: Record<string, number> = {};
   const previous: Record<string, string | null> = {};
   const queue: string[] = [];
 
-  Object.keys(dynamicNodes).forEach(id => {
+  Object.keys(adj).forEach(id => {
     distances[id] = Infinity;
     previous[id] = null;
     queue.push(id);
   });
+
+  if (!(startId in distances) || !(endId in distances)) return null;
+
   distances[startId] = 0;
 
   while (queue.length > 0) {
@@ -167,7 +352,7 @@ function findShortestPath(
         path.unshift(curr);
         curr = previous[curr];
       }
-      return { path, distance: distances[u] };
+      return { path, distance: distances[u], nodesCoords: allNodesCoords };
     }
 
     const neighbors = adj[u] || [];
@@ -1190,6 +1375,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
   // Coordinate helper that resolves both base port nodes and temporary obstacle sub-segment nodes
   const getNodeCoordinates = useCallback((nodeId: string) => {
+    if (routeResult && routeResult.nodesCoords && nodeId in routeResult.nodesCoords) {
+      return routeResult.nodesCoords[nodeId];
+    }
     if (nodeId in DEFAULT_NODES) {
       return { x: DEFAULT_NODES[nodeId].x, y: DEFAULT_NODES[nodeId].y };
     }
@@ -1209,7 +1397,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       }
     }
     return { x: 250, y: 250 };
-  }, [paths]);
+  }, [routeResult, paths, DEFAULT_NODES]);
 
   // Vehicle coordinate & angle interpolation for Screen 2 GPS Map simulation
   const vehiclePosition = useMemo(() => {
