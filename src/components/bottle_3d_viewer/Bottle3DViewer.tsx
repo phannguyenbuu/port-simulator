@@ -882,7 +882,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       setRoughness(0.18);
       setMetalness(0.05);
       setTransmission(0.0);
-      setAutoRotateSpeed(1.5);
+      setAutoRotateSpeed(0.0);
       setShowWireframe(false);
     }
   }, [moldCode]);
