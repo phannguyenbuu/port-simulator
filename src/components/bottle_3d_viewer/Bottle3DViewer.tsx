@@ -1393,10 +1393,16 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             targetControlsTargetRef.current = null;
           }
         }
-        // If transition finished, re-enable controls and update
+        
+        // Sync OrbitControls internal state on every frame during transition with damping disabled
+        const wasDamping = controls.enableDamping;
+        controls.enableDamping = false;
+        controls.update();
+        controls.enableDamping = wasDamping;
+
+        // If transition finished, re-enable controls
         if (!targetCameraPosRef.current && !targetControlsTargetRef.current) {
           controls.enabled = true;
-          controls.update();
         }
       }
 
