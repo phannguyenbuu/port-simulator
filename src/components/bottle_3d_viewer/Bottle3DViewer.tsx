@@ -664,6 +664,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   useEffect(() => {
     if (!mountRef.current) return;
 
+    let lineMaterials: any[] = [];
     const container = mountRef.current;
     const width = container.clientWidth || 600;
     const height = container.clientHeight || 500;
@@ -808,8 +809,14 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     Promise.all([
       loadModel('/asset/general.obj'),
       loadModel('/asset/truck.obj'),
-      loadModel('/asset/pin.obj')
-    ]).then(([generalObj, truckObj, pinObj]) => {
+      loadModel('/asset/pin.obj'),
+      import('three/examples/jsm/lines/Line2.js'),
+      import('three/examples/jsm/lines/LineGeometry.js'),
+      import('three/examples/jsm/lines/LineMaterial.js')
+    ]).then(([generalObj, truckObj, pinObj, line2Module, geometryModule, materialModule]) => {
+      const { Line2 } = line2Module;
+      const { LineGeometry } = geometryModule;
+      const { LineMaterial } = materialModule;
       const mainGroup = new THREE.Group();
 
       // 1. Process General Port Layout
@@ -850,7 +857,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       mainGroup.add(truckClone);
 
       const routeGroup = new THREE.Group();
-      routeGroup.position.set(0, 10.0, 0); // raised by 10 units to float above generalObj
+      routeGroup.position.set(0, 2.0, 0); // raised by 2 units to float above generalObj
 
       let loadedObjectsCount = 0;
       if (pinObj) {
@@ -906,19 +913,34 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           const fromNode = routeData.nodes[path.from];
           const toNode = routeData.nodes[path.to];
           if (fromNode && toNode) {
-            const material = new THREE.LineBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.8 });
-            
-            const points = [];
-            points.push(new THREE.Vector3(fromNode.y, 0, fromNode.x));
+            const pointsCoords = [];
+            pointsCoords.push(fromNode.y, 0, fromNode.x);
             if (path.points && path.points.length > 0) {
               path.points.forEach((p: number[]) => {
-                points.push(new THREE.Vector3(p[1], 0, p[0]));
+                pointsCoords.push(p[1], 0, p[0]);
               });
             }
-            points.push(new THREE.Vector3(toNode.y, 0, toNode.x));
+            pointsCoords.push(toNode.y, 0, toNode.x);
             
-            const geometry = new THREE.BufferGeometry().setFromPoints(points);
-            const line = new THREE.Line(geometry, material);
+            const geometry = new LineGeometry();
+            geometry.setPositions(pointsCoords);
+            
+            const material = new LineMaterial({
+              color: 0xff0000, // Red color
+              linewidth: 3, // Double width (LineMaterial unit is pixels on screen space)
+              dashed: true,
+              dashScale: 0.5,
+              dashSize: 10,
+              gapSize: 5,
+              resolution: new THREE.Vector2(container.clientWidth || 800, container.clientHeight || 600),
+              transparent: true,
+              opacity: 0.9
+            });
+            
+            lineMaterials.push(material);
+            
+            const line = new Line2(geometry, material);
+            line.computeLineDistances();
             routeGroup.add(line);
           }
         });
@@ -1032,6 +1054,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
+      lineMaterials.forEach(mat => {
+        if (mat.resolution) mat.resolution.set(w, h);
+      });
     };
     
     const resizeObserver = new ResizeObserver(() => {
@@ -1046,6 +1071,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       
       // Dispose materials & geometries
       bottleMaterial.dispose();
+      lineMaterials.forEach(mat => mat.dispose());
       axesGroup.traverse((child) => {
         if (child instanceof THREE.Sprite) {
           child.material.map?.dispose();
