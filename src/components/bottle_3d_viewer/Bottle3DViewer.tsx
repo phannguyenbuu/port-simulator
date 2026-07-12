@@ -857,7 +857,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       mainGroup.add(truckClone);
 
       const routeGroup = new THREE.Group();
-      routeGroup.position.set(0, 2.0, 0); // raised by 2 units to float above generalObj
+      routeGroup.position.set(0, 1.0, 0); // raised by 1 unit to float above generalObj
 
       let loadedObjectsCount = 0;
       if (pinObj) {
@@ -914,13 +914,14 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           const toNode = routeData.nodes[path.to];
           if (fromNode && toNode) {
             const pointsCoords = [];
-            pointsCoords.push(fromNode.y, 0, fromNode.x);
             if (path.points && path.points.length > 0) {
               path.points.forEach((p: number[]) => {
                 pointsCoords.push(p[1], 0, p[0]);
               });
+            } else {
+              pointsCoords.push(fromNode.y, 0, fromNode.x);
+              pointsCoords.push(toNode.y, 0, toNode.x);
             }
-            pointsCoords.push(toNode.y, 0, toNode.x);
             
             const geometry = new LineGeometry();
             geometry.setPositions(pointsCoords);
