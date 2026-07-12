@@ -915,6 +915,38 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     const clock = new THREE.Clock();
 
+    const getLocalNodeCoordinates = (nodeId: string) => {
+      const route = stateRef.current.routeResult;
+      if (route && route.nodesCoords && nodeId in route.nodesCoords) {
+        return route.nodesCoords[nodeId];
+      }
+      const currentNodes = stateRef.current.nodes;
+      if (currentNodes && nodeId in currentNodes) {
+        return { x: currentNodes[nodeId].x, y: currentNodes[nodeId].y };
+      }
+      if (nodeId in DEFAULT_NODES) {
+        return { x: DEFAULT_NODES[nodeId].x, y: DEFAULT_NODES[nodeId].y };
+      }
+      if (nodeId.includes('_obs')) {
+        const parts = nodeId.split('_obs');
+        const pathId = parts[0];
+        const obsIdx = parts[1]; // '1' or '2'
+        const path = paths.find(p => p.id === pathId);
+        if (path) {
+          const fromNode = currentNodes ? currentNodes[path.from] : DEFAULT_NODES[path.from];
+          const toNode = currentNodes ? currentNodes[path.to] : DEFAULT_NODES[path.to];
+          const pct = obsIdx === '1' ? 0.25 : 0.75;
+          if (fromNode && toNode) {
+            return {
+              x: fromNode.x + (toNode.x - fromNode.x) * pct,
+              y: fromNode.y + (toNode.y - fromNode.y) * pct,
+            };
+          }
+        }
+      }
+      return { x: 250, y: 250 };
+    };
+
     const getRoutePoints = (route: any) => {
       if (!route || route.path.length === 0) return [];
       const pts: { x: number; y: number }[] = [];
@@ -929,8 +961,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           (p.from === toId && p.to === fromId)
         );
         
-        const fCoords = getNodeCoordinates(fromId);
-        const tCoords = getNodeCoordinates(toId);
+        const fCoords = getLocalNodeCoordinates(fromId);
+        const tCoords = getLocalNodeCoordinates(toId);
         if (!fCoords || !tCoords) continue;
         
         if (i === 0) {
@@ -1425,7 +1457,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             // Calculate bounding box of all coordinates in the route wayfinding path
             const box = new THREE.Box3();
             route.path.forEach(nodeId => {
-              const coords = getNodeCoordinates(nodeId);
+              const coords = getLocalNodeCoordinates(nodeId);
               box.expandByPoint(new THREE.Vector3(coords.y, 0.0, coords.x));
             });
             
@@ -1435,19 +1467,22 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             const size = new THREE.Vector3();
             box.getSize(size);
             const maxDim = Math.max(size.x, size.y, size.z);
-            const fovRad = (camera.fov * Math.PI) / 180;
-            let distance = maxDim / (2 * Math.tan(fovRad / 2));
-            distance *= 1.4; // 1.4x padding for clean fit
-            distance = Math.max(distance, 200); // keep a minimum distance
             
-            // Get current camera look direction
-            const dir = new THREE.Vector3();
-            camera.getWorldDirection(dir);
-            
-            // Position camera along current direction from box center
-            controls.target.copy(center);
-            camera.position.copy(center).addScaledVector(dir, -distance);
-            controls.update();
+            if (maxDim > 0) {
+              const fovRad = (camera.fov * Math.PI) / 180;
+              let distance = maxDim / (2 * Math.tan(fovRad / 2));
+              distance *= 1.4; // 1.4x padding for clean fit
+              distance = Math.max(distance, 200); // keep a minimum distance
+              
+              // Get current camera look direction
+              const dir = new THREE.Vector3();
+              camera.getWorldDirection(dir);
+              
+              // Position camera along current direction from box center
+              controls.target.copy(center);
+              camera.position.copy(center).addScaledVector(dir, -distance);
+              controls.update();
+            }
           }
         } else {
           lastRouteKeyRef.current = '';
@@ -2311,6 +2346,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     activeTool,
     customObstacles,
     selectedObstacleId,
+    nodes,
+    navSpeed
   });
 
   // Sync references
@@ -2330,7 +2367,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     stateRef.current.activeTool = activeTool;
     stateRef.current.customObstacles = customObstacles;
     stateRef.current.selectedObstacleId = selectedObstacleId;
-  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck, activeTool, customObstacles, selectedObstacleId]);
+    stateRef.current.nodes = nodes;
+    stateRef.current.navSpeed = navSpeed;
+  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck, activeTool, customObstacles, selectedObstacleId, nodes, navSpeed]);
 
   // Dynamic viewBox for SVG mini-map to zoom fit wayfinding path
   const svgViewBox = useMemo(() => {
