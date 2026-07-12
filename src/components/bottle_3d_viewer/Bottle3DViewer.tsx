@@ -476,6 +476,48 @@ function generateProceduralEnvMap(): THREE.CubeTexture {
   return envMap;
 }
 
+interface ArrowData {
+  x: number;
+  y: number;
+  angle: number;
+}
+
+function getRouteArrows(points: { x: number; y: number }[], offset: number, spacing = 40): ArrowData[] {
+  if (points.length < 2) return [];
+  
+  const segments: { p1: { x: number; y: number }; p2: { x: number; y: number }; len: number; dx: number; dy: number; angle: number }[] = [];
+  let totalLength = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i+1];
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    segments.push({ p1, p2, len, dx, dy, angle });
+    totalLength += len;
+  }
+  
+  const arrows: ArrowData[] = [];
+  let d = offset % spacing;
+  while (d < totalLength) {
+    let accum = 0;
+    for (const seg of segments) {
+      if (d >= accum && d <= accum + seg.len) {
+        const t = seg.len === 0 ? 0 : (d - accum) / seg.len;
+        const x = seg.p1.x + t * seg.dx;
+        const y = seg.p1.y + t * seg.dy;
+        arrows.push({ x, y, angle: seg.angle });
+        break;
+      }
+      accum += seg.len;
+    }
+    d += spacing;
+  }
+  
+  return arrows;
+}
+
 interface Bottle3DViewerProps {
   hideControls?: boolean;
   moldCode?: string;
@@ -704,6 +746,20 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const [mobileScreen, setMobileScreen] = useState<'planning' | 'navigation' | 'completion'>('planning');
   const [navProgress, setNavProgress] = useState<number>(0);
   const [isNavigating, setIsNavigating] = useState<boolean>(false);
+  const [animationOffset, setAnimationOffset] = useState<number>(0);
+  
+  // Continuous 2D wayfinding arrow offset animation tick
+  useEffect(() => {
+    if (!routeResult) return;
+    let animId: number;
+    const tick = () => {
+      setAnimationOffset(prev => prev + 1.5);
+      animId = requestAnimationFrame(tick);
+    };
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  }, [routeResult]);
+
   const [visitStatus, setVisitStatus] = useState<'done' | 'failed' | 'skipped'>('done');
   const [visitNotes, setVisitNotes] = useState<string>('');
   const [isAudioMuted, setIsAudioMuted] = useState<boolean>(false);
@@ -1438,6 +1494,64 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     return node.name;
   }, [DEFAULT_NODES]);
 
+  // Helper to zoom fit wayfinding path on Konva stages (desktop & mobile)
+  const fitRouteOnStage = useCallback((isMobileStage: boolean, containerWidth: number, containerHeight: number) => {
+    if (!routeResult || routeResult.path.length < 2) return;
+    
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    
+    routeResult.path.forEach(nodeId => {
+      const coords = getNodeCoordinates(nodeId);
+      const x = isMobileStage ? coords.y : coords.x;
+      const y = isMobileStage ? coords.x : coords.y;
+      
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    });
+    
+    const pathWidth = maxX - minX;
+    const pathHeight = maxY - minY;
+    
+    if (pathWidth === 0 && pathHeight === 0) return;
+    
+    const padding = 60;
+    const targetW = pathWidth + padding * 2;
+    const targetH = pathHeight + padding * 2;
+    
+    const scaleX = containerWidth / targetW;
+    const scaleY = containerHeight / targetH;
+    const scale = Math.min(scaleX, scaleY, 2.0); // cap scale at 2.0
+    
+    const centerX = minX + pathWidth / 2;
+    const centerY = minY + pathHeight / 2;
+    
+    const posX = containerWidth / 2 - centerX * scale;
+    const posY = containerHeight / 2 - centerY * scale;
+    
+    if (isMobileStage) {
+      setMobileStageScale({ x: scale, y: scale });
+      setMobileStagePos({ x: posX, y: posY });
+    } else {
+      setStageScale({ x: scale, y: scale });
+      setStagePos({ x: posX, y: posY });
+    }
+  }, [routeResult, getNodeCoordinates]);
+
+  // Trigger zoom fit when routeResult changes
+  useEffect(() => {
+    if (routeResult && routeResult.path.length >= 2) {
+      if (canvasSize.width > 0 && canvasSize.height > 0) {
+        fitRouteOnStage(false, canvasSize.width, canvasSize.height);
+      }
+      fitRouteOnStage(true, 356, Math.round(window.innerHeight * 0.5));
+    }
+  }, [routeResult, canvasSize, fitRouteOnStage]);
+
   // Update wayfinding line in 3D scene when routeResult changes
   useEffect(() => {
     const wayfindingGroup = wayfindingGroupRef.current;
@@ -1459,85 +1573,91 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     if (!routeResult || routeResult.path.length < 2) return;
 
-    let isSubscribed = true;
-
-    // Dynamically load Line2 modules
-    Promise.all([
-      import('three/examples/jsm/lines/Line2.js'),
-      import('three/examples/jsm/lines/LineGeometry.js'),
-      import('three/examples/jsm/lines/LineMaterial.js')
-    ]).then(([line2Module, geometryModule, materialModule]) => {
-      if (!isSubscribed || !wayfindingGroupRef.current) return;
-
-      const { Line2 } = line2Module;
-      const { LineGeometry } = geometryModule;
-      const { LineMaterial } = materialModule;
-
-      const pointsCoords: number[] = [];
-      routeResult.path.forEach(nodeId => {
-        const coords = getNodeCoordinates(nodeId);
-        // Translate 2D map to 3D scene: X -> Z, Y -> X (matching road rendering)
-        pointsCoords.push(coords.y, 0, coords.x);
-      });
-
-      const geometry = new LineGeometry();
-      geometry.setPositions(pointsCoords);
-
-      // Create arrow pattern texture using HTML canvas
-      const canvas = document.createElement('canvas');
-      canvas.width = 128;
-      canvas.height = 32;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = 'rgba(0,0,0,0)';
-        ctx.fillRect(0, 0, 128, 32);
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.moveTo(10, 16);
-        ctx.lineTo(80, 16);
-        ctx.lineTo(80, 6);
-        ctx.lineTo(118, 16);
-        ctx.lineTo(80, 26);
-        ctx.lineTo(80, 16);
-        ctx.closePath();
-        ctx.fill();
+    class LinearPathCurve extends THREE.Curve<THREE.Vector3> {
+      points: THREE.Vector3[];
+      constructor(points: THREE.Vector3[]) {
+        super();
+        this.points = points;
       }
-
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.RepeatWrapping;
-
-      // Repeat texture based on path length
-      let totalLength = 0;
-      for (let i = 0; i < routeResult.path.length - 1; i++) {
-        const c1 = getNodeCoordinates(routeResult.path[i]);
-        const c2 = getNodeCoordinates(routeResult.path[i+1]);
-        totalLength += Math.hypot(c1.x - c2.x, c1.y - c2.y);
+      getPoint(t: number, optionalTarget = new THREE.Vector3()) {
+        const point = optionalTarget;
+        if (this.points.length === 0) return point;
+        if (this.points.length === 1) return point.copy(this.points[0]);
+        
+        const totalSegments = this.points.length - 1;
+        const scaledT = t * totalSegments;
+        const index = Math.floor(scaledT);
+        const segmentT = scaledT - index;
+        
+        if (index >= totalSegments) {
+          return point.copy(this.points[totalSegments]);
+        }
+        
+        const p1 = this.points[index];
+        const p2 = this.points[index + 1];
+        point.lerpVectors(p1, p2, segmentT);
+        return point;
       }
-      texture.repeat.set(Math.max(1, totalLength / 15), 1); // 1 arrow every 15 units
+    }
 
-      const container = mountRef.current;
-      const material = new LineMaterial({
-        color: 0x38bdf8, // Blue animated path
-        map: texture,
-        useMap: true,
-        linewidth: 7, // Highly visible
-        transparent: true,
-        opacity: 0.95,
-        resolution: new THREE.Vector2(container ? container.clientWidth : 800, container ? container.clientHeight : 600)
-      });
-
-      const line = new Line2(geometry, material);
-      line.computeLineDistances();
-      wayfindingGroup.add(line);
-
-      (line as any).isWayfinding = true;
-      (line as any).texture = texture;
+    const threePoints: THREE.Vector3[] = [];
+    routeResult.path.forEach(nodeId => {
+      const coords = getNodeCoordinates(nodeId);
+      // Raise slightly above the ground (Y = 2.0)
+      threePoints.push(new THREE.Vector3(coords.y, 2.0, coords.x));
     });
 
-    return () => {
-      isSubscribed = false;
-    };
+    const curve = new LinearPathCurve(threePoints);
+    const geometry = new THREE.TubeGeometry(curve, 128, 2.0, 8, false);
+
+    // Create arrow pattern texture using HTML canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = 'rgba(0,0,0,0)';
+      ctx.fillRect(0, 0, 128, 32);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(10, 16);
+      ctx.lineTo(80, 16);
+      ctx.lineTo(80, 6);
+      ctx.lineTo(118, 16);
+      ctx.lineTo(80, 26);
+      ctx.lineTo(80, 16);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    // Repeat texture based on path length
+    let totalLength = 0;
+    for (let i = 0; i < routeResult.path.length - 1; i++) {
+      const c1 = getNodeCoordinates(routeResult.path[i]);
+      const c2 = getNodeCoordinates(routeResult.path[i+1]);
+      totalLength += Math.hypot(c1.x - c2.x, c1.y - c2.y);
+    }
+    texture.repeat.set(Math.max(1, totalLength / 20), 1); // 1 arrow every 20 units
+
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8, // Blue animated path
+      map: texture,
+      transparent: true,
+      opacity: 0.95,
+      side: THREE.DoubleSide
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    wayfindingGroup.add(mesh);
+
+    (mesh as any).isWayfinding = true;
+    (mesh as any).texture = texture;
+
+    return () => {};
   }, [routeResult, getNodeCoordinates]);
 
   // Vehicle coordinate & angle interpolation for Screen 2 GPS Map simulation
@@ -1573,6 +1693,35 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     return { x, y, angle };
   }, [routeResult, navProgress, getNodeCoordinates]);
+
+  // Dynamic viewBox for SVG mini-map to zoom fit wayfinding path
+  const svgViewBox = useMemo(() => {
+    if (!routeResult || routeResult.path.length < 2) {
+      return "80 80 640 340";
+    }
+    
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    
+    routeResult.path.forEach(nodeId => {
+      const coords = getNodeCoordinates(nodeId);
+      if (coords.x < minX) minX = coords.x;
+      if (coords.x > maxX) maxX = coords.x;
+      if (coords.y < minY) minY = coords.y;
+      if (coords.y > maxY) maxY = coords.y;
+    });
+    
+    const w = maxX - minX;
+    const h = maxY - minY;
+    
+    // Add 25% padding around the path
+    const padX = Math.max(50, w * 0.25);
+    const padY = Math.max(50, h * 0.25);
+    
+    return `${minX - padX} ${minY - padY} ${w + padX * 2} ${h + padY * 2}`;
+  }, [routeResult, getNodeCoordinates]);
 
   // Determine active turn-by-turn instruction description
   const navigationInstruction = useMemo(() => {
@@ -2032,6 +2181,58 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             );
           })}
 
+          {/* Render active computed route line with animated 2D arrows on Konva Stage */}
+          {routeResult && routeResult.path.length >= 2 && (() => {
+            const pointsCoords: number[] = [];
+            const rawPoints: { x: number; y: number }[] = [];
+            
+            routeResult.path.forEach(nodeId => {
+              const coords = getNodeCoordinates(nodeId);
+              const px = isMobile ? coords.y : coords.x;
+              const py = isMobile ? coords.x : coords.y;
+              pointsCoords.push(px, py);
+              rawPoints.push({ x: px, y: py });
+            });
+            
+            const arrows = getRouteArrows(rawPoints, animationOffset, isMobile ? 30 : 40);
+            
+            return (
+              <Group>
+                {/* Route Glow Underline */}
+                <Line
+                  points={pointsCoords}
+                  stroke="#38bdf8"
+                  strokeWidth={isMobile ? 8 : 6}
+                  lineCap="round"
+                  lineJoin="round"
+                  opacity={0.3}
+                />
+                {/* Main Route Line */}
+                <Line
+                  points={pointsCoords}
+                  stroke="#38bdf8"
+                  strokeWidth={isMobile ? 4 : 3}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+                {/* Animated Arrowheads */}
+                {arrows.map((arrow, idx) => (
+                  <RegularPolygon
+                    key={idx}
+                    x={arrow.x}
+                    y={arrow.y}
+                    sides={3}
+                    radius={isMobile ? 5 : 4}
+                    rotation={arrow.angle + 90}
+                    fill="#38bdf8"
+                    stroke="#ffffff"
+                    strokeWidth={1}
+                  />
+                ))}
+              </Group>
+            );
+          })()}
+
           {Object.values(DEFAULT_NODES).map(node => {
             if (!node) return null;
             const mapName = (node.name || '').toLowerCase();
@@ -2400,7 +2601,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
                   {/* SVG mini-map area with animating navigation triangle */}
                   <div style={{ flex: 1, position: 'relative', backgroundColor: '#090d16', overflow: 'hidden' }}>
-                    <svg viewBox="80 80 640 340" style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
+                    <svg viewBox={svgViewBox} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
                       {/* Render all paths in background */}
                       {paths.map(path => {
                         const fromNode = DEFAULT_NODES[path.from];
@@ -2458,23 +2659,52 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         );
                       })}
 
-                      {/* Render active computed route line */}
+                      {/* Render active computed route line with continuous animated 2D arrows on SVG Map */}
                       {routeResult && routeResult.path.length >= 2 && (() => {
                         const points: string[] = [];
+                        const rawPoints: { x: number; y: number }[] = [];
+                        
                         routeResult.path.forEach(nodeId => {
                           const coords = getNodeCoordinates(nodeId);
                           points.push(`${coords.x},${coords.y}`);
+                          rawPoints.push({ x: coords.x, y: coords.y });
                         });
+                        
+                        const arrows = getRouteArrows(rawPoints, animationOffset, 30);
+                        
                         return (
-                          <polyline
-                            points={points.join(' ')}
-                            fill="none"
-                            stroke="#38bdf8"
-                            strokeWidth={5}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            opacity={0.8}
-                          />
+                          <g>
+                            {/* Glow polyline */}
+                            <polyline
+                              points={points.join(' ')}
+                              fill="none"
+                              stroke="#38bdf8"
+                              strokeWidth={8}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              opacity={0.3}
+                            />
+                            {/* Main polyline */}
+                            <polyline
+                              points={points.join(' ')}
+                              fill="none"
+                              stroke="#38bdf8"
+                              strokeWidth={4}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            {/* SVG Animated Arrowheads */}
+                            {arrows.map((arrow, idx) => (
+                              <path
+                                key={idx}
+                                d="M-5,-4 L5,0 L-5,4 Z"
+                                fill="#38bdf8"
+                                stroke="#ffffff"
+                                strokeWidth={1}
+                                transform={`translate(${arrow.x}, ${arrow.y}) rotate(${arrow.angle})`}
+                              />
+                            ))}
+                          </g>
                         );
                       })()}
 
