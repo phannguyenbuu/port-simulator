@@ -1030,7 +1030,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     const height = container.clientHeight || 500;
 
     // 1. Renderer Setup
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance', logarithmicDepthBuffer: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
@@ -1044,7 +1044,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     scene.background = new THREE.Color(0x0f172a);
     scene.fog = new THREE.FogExp2(0x0f172a, 0.0003);
 
-    const camera = new THREE.PerspectiveCamera(40, width / height, 10.0, 5000);
+    const camera = new THREE.PerspectiveCamera(40, width / height, 50.0, 5000);
     camera.position.set(1000, 1200, 1500);
     cameraRef.current = camera;
 
@@ -1283,7 +1283,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             if (context) {
               context.fillStyle = 'rgba(0,0,0,0)';
               context.fillRect(0, 0, 1024, 1024);
-              context.font = 'bold 60px Inter, sans-serif';
+              context.font = 'bold 30px Inter, sans-serif';
               context.fillStyle = materialsMap[Object.keys(materialsMap).find(k => mapName.includes(k)) || 'gate'] || '#ffffff';
               context.textAlign = 'center';
               context.textBaseline = 'middle';
@@ -1293,7 +1293,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               texture.needsUpdate = true;
               const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false });
               const sprite = new THREE.Sprite(spriteMaterial);
-              sprite.position.set(0, 40, 0); // Position it 40 units above the node!
+              sprite.position.set(0, 1.0, 0); // Position it 1 unit above the node!
               sprite.scale.set(150, 150, 1); // Make the sprite bigger!
               pinClone.add(sprite);
             }
