@@ -3176,6 +3176,53 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               {/* Map on top half of mobile screen */}
               <div style={{ height: '50vh', width: '100%', borderBottom: '2px solid #1e293b', position: 'relative', overflow: 'hidden', backgroundColor: '#22c55e' }}>
                 {renderAdminStage(356, Math.round(window.innerHeight * 0.5), true)}
+
+                {/* Floating Side Buttons (Mute, Compass, GPS Lock) - ONLY in Navigation Mode */}
+                {mobileScreen === 'navigation' && (
+                  <div style={{ position: 'absolute', right: '12px', top: '12px', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 10 }}>
+                    <button 
+                      onClick={() => setIsAudioMuted(!isAudioMuted)}
+                      style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(30,41,59,0.85)', border: '1px solid #334155', color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                    >
+                      {isAudioMuted ? '🔇' : '🔊'}
+                    </button>
+                    <button style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(30,41,59,0.85)', border: '1px solid #334155', color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      🧭
+                    </button>
+                    <button 
+                      onClick={() => setCameraFollowTruck(!cameraFollowTruck)}
+                      style={{ 
+                        width: '32px', 
+                        height: '32px', 
+                        borderRadius: '50%', 
+                        backgroundColor: cameraFollowTruck ? 'rgba(56, 189, 248, 0.9)' : 'rgba(30,41,59,0.85)', 
+                        border: '1px solid #334155', 
+                        color: cameraFollowTruck ? '#0f172a' : '#cbd5e1', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        boxShadow: cameraFollowTruck ? '0 0 10px rgba(56, 189, 248, 0.5)' : 'none'
+                      }}
+                      title={cameraFollowTruck ? "Disable 3D Camera Follow" : "Enable 3D Camera Follow"}
+                    >
+                      ⌖
+                    </button>
+                  </div>
+                )}
+
+                {/* Floating Speed Limit overlay (Bottom-left) - ONLY in Navigation Mode */}
+                {mobileScreen === 'navigation' && (
+                  <div style={{ position: 'absolute', left: '12px', bottom: '12px', display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 10 }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', border: '4px solid #ef4444', backgroundColor: '#ffffff', color: '#000000', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
+                      40
+                    </div>
+                    <div style={{ backgroundColor: 'rgba(15,23,42,0.85)', border: '1px solid #334155', padding: '4px 6px', borderRadius: '4px', color: '#38bdf8', fontSize: '10px', fontWeight: 'bold', textAlign: 'center' }}>
+                      {isNavigating ? `${navSpeed} km/h` : '0 km/h'}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Screen 1: Route Planning & Overview */}
@@ -3357,7 +3404,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
               {/* Screen 2: Active Turn-by-Turn Navigation */}
               {mobileScreen === 'navigation' && (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#030712', padding: '32px 0 8px 0', boxSizing: 'border-box' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, backgroundColor: '#090d16', padding: '0px', boxSizing: 'border-box', overflowY: 'auto' }}>
                   {/* Active Instruction Blue Banner */}
                   <div style={{
                     backgroundColor: '#1e40af',
@@ -3381,54 +3428,6 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                     </div>
                   </div>
 
-                  {/* Standard 2D map component used for navigation */}
-                  <div style={{ flex: 1, position: 'relative', backgroundColor: '#090d16', overflow: 'hidden' }}>
-                    {renderAdminStage(356, Math.round(window.innerHeight * 0.5), true)}
-
-                    {/* Floating Side Buttons (Mute, Compass, GPS Lock, Settings) */}
-                    <div style={{ position: 'absolute', right: '12px', top: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <button 
-                        onClick={() => setIsAudioMuted(!isAudioMuted)}
-                        style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(30,41,59,0.85)', border: '1px solid #334155', color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                      >
-                        {isAudioMuted ? '🔇' : '🔊'}
-                      </button>
-                      <button style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(30,41,59,0.85)', border: '1px solid #334155', color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        🧭
-                      </button>
-                      <button 
-                        onClick={() => setCameraFollowTruck(!cameraFollowTruck)}
-                        style={{ 
-                          width: '32px', 
-                          height: '32px', 
-                          borderRadius: '50%', 
-                          backgroundColor: cameraFollowTruck ? 'rgba(56, 189, 248, 0.9)' : 'rgba(30,41,59,0.85)', 
-                          border: '1px solid #334155', 
-                          color: cameraFollowTruck ? '#0f172a' : '#cbd5e1', 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                          boxShadow: cameraFollowTruck ? '0 0 10px rgba(56, 189, 248, 0.5)' : 'none'
-                        }}
-                        title={cameraFollowTruck ? "Disable 3D Camera Follow" : "Enable 3D Camera Follow"}
-                      >
-                        ⌖
-                      </button>
-                    </div>
-
-                    {/* Floating Speed Limit overlay (Bottom-left) */}
-                    <div style={{ position: 'absolute', left: '12px', bottom: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', border: '4px solid #ef4444', backgroundColor: '#ffffff', color: '#000000', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
-                        40
-                      </div>
-                      <div style={{ backgroundColor: 'rgba(15,23,42,0.85)', border: '1px solid #334155', padding: '4px 6px', borderRadius: '4px', color: '#38bdf8', fontSize: '10px', fontWeight: 'bold', textAlign: 'center' }}>
-                        {isNavigating ? `${navSpeed} km/h` : '0 km/h'}
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Bottom Navigation Status card */}
                   <div style={{
                     backgroundColor: '#1e293b',
@@ -3438,6 +3437,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                     flexDirection: 'column',
                     gap: '12px',
                     boxShadow: '0 -4px 10px rgba(0,0,0,0.3)',
+                    flex: 1
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -3488,6 +3488,29 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                           {displayMobileTime}
                         </span>
                       </div>
+                    </div>
+
+                    {/* Live Speed Adjustment Slider during Navigation */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderTop: '1px solid #334155', paddingTop: '10px', marginTop: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>ADJUST SPEED (Port Limit: 40 km/h)</span>
+                        <span style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 'bold' }}>{navSpeed} km/h</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="5"
+                        max="40"
+                        value={navSpeed}
+                        onChange={(e) => setNavSpeed(Number(e.target.value))}
+                        style={{
+                          width: '100%',
+                          accentColor: '#38bdf8',
+                          background: '#334155',
+                          height: '4px',
+                          borderRadius: '2px',
+                          cursor: 'pointer'
+                        }}
+                      />
                     </div>
 
                     {/* Camera follow mode control */}
