@@ -850,7 +850,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       mainGroup.add(truckClone);
 
       const routeGroup = new THREE.Group();
-      routeGroup.position.set(0, 0.1, 0); // slightly above ground
+      routeGroup.position.set(0, 100.0, 0); // raised by 100 units to float above generalObj
 
       let loadedObjectsCount = 0;
       if (pinObj) {
