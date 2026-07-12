@@ -849,33 +849,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     localStorage.setItem(`port_end_node_${moldCode}`, endNode);
   }, [endNode, moldCode]);
 
-  // Simulate vehicle navigation movement
-  useEffect(() => {
-    if (!isNavigating) return;
 
-    // Trigger immediate first progress tick to avoid start delay
-    setNavProgress(prev => {
-      if (prev >= 100) {
-        setIsNavigating(false);
-        return 100;
-      }
-      return prev + 0.5; // Start moving immediately
-    });
-
-    const intervalMs = Math.round(3000 / navSpeed);
-
-    const timer = setInterval(() => {
-      setNavProgress(prev => {
-        if (prev >= 100) {
-          setIsNavigating(false);
-          return 100;
-        }
-        return prev + 1; // Increment by 1% each tick
-      });
-    }, intervalMs);
-
-    return () => clearInterval(timer);
-  }, [isNavigating, navSpeed]);
 
   // Load settings from LocalStorage when moldCode changes
   useEffect(() => {
@@ -931,6 +905,89 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     let handlePointerDown: (e: PointerEvent) => void;
     let handlePointerMove: (e: PointerEvent) => void;
     let handlePointerUp: (e: PointerEvent) => void;
+
+    let currentRoutePoints: { x: number; y: number }[] = [];
+    let currentRouteDists: number[] = [];
+    let currentRouteTotalLength = 0;
+    let navDistance = 0;
+    let lastProgressState = 0;
+
+    const clock = new THREE.Clock();
+
+    const getRoutePoints = (route: any) => {
+      if (!route || route.path.length === 0) return [];
+      const pts: { x: number; y: number }[] = [];
+      const path = route.path;
+      
+      for (let i = 0; i < path.length - 1; i++) {
+        const fromId = path[i];
+        const toId = path[i + 1];
+        
+        const pathObj = paths.find(p => 
+          (p.from === fromId && p.to === toId) || 
+          (p.from === toId && p.to === fromId)
+        );
+        
+        const fNode = DEFAULT_NODES[fromId];
+        const tNode = DEFAULT_NODES[toId];
+        if (!fNode || !tNode) continue;
+        
+        if (i === 0) {
+          pts.push({ x: fNode.x, y: fNode.y });
+        }
+        
+        if (pathObj && pathObj.points && pathObj.points.length > 0) {
+          const isForward = pathObj.from === fromId;
+          const pointsList = isForward ? pathObj.points : [...pathObj.points].reverse();
+          pointsList.forEach(p => {
+            pts.push({ x: p[0], y: p[1] });
+          });
+        }
+        
+        pts.push({ x: tNode.x, y: tNode.y });
+      }
+      return pts;
+    };
+
+    const getPositionAndAngleAtDistance = (pts: { x: number; y: number }[], dists: number[], dist: number) => {
+      if (pts.length === 0) return { x: 250, y: 250, angle: 0 };
+      if (pts.length === 1) return { x: pts[0].x, y: pts[0].y, angle: 0 };
+      
+      const totalLength = dists[dists.length - 1];
+      const clampDist = Math.max(0, Math.min(totalLength, dist));
+      
+      let i = 0;
+      while (i < dists.length - 1 && dists[i + 1] < clampDist) {
+        i++;
+      }
+      
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const segLength = dists[i + 1] - dists[i];
+      
+      let x = p1.x;
+      let y = p1.y;
+      let angle = 0;
+      
+      if (segLength > 0) {
+        const t = (clampDist - dists[i]) / segLength;
+        x = p1.x + (p2.x - p1.x) * t;
+        y = p1.y + (p2.y - p1.y) * t;
+        
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        angle = Math.atan2(dy, dx) * (180 / Math.PI);
+      } else {
+        if (i > 0) {
+          const dx = p2.x - pts[i - 1].x;
+          const dy = p2.y - pts[i - 1].y;
+          angle = Math.atan2(dy, dx) * (180 / Math.PI);
+        }
+      }
+      
+      return { x, y, angle };
+    };
+
     const container = mountRef.current;
     const width = container.clientWidth || 600;
     const height = container.clientHeight || 500;
@@ -1339,13 +1396,30 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       if (truckMesh) {
         const isNav = stateRef.current.isNavigating;
         const route = stateRef.current.routeResult;
-        const vPos = stateRef.current.vehiclePosition;
+        const dt = clock.getDelta();
         
-        // Check if route has changed to trigger 3D Zoom Fit
+        // Check if route has changed to trigger 3D Zoom Fit and update cached path details
         if (route && route.path.length >= 2) {
           const routeKey = route.path.join('-');
           if (lastRouteKeyRef.current !== routeKey) {
             lastRouteKeyRef.current = routeKey;
+            
+            // Recalculate path points and cumulative distances
+            currentRoutePoints = getRoutePoints(route);
+            currentRouteDists = [0];
+            currentRouteTotalLength = 0;
+            for (let i = 1; i < currentRoutePoints.length; i++) {
+              const d = Math.hypot(
+                currentRoutePoints[i].x - currentRoutePoints[i - 1].x,
+                currentRoutePoints[i].y - currentRoutePoints[i - 1].y
+              );
+              currentRouteTotalLength += d;
+              currentRouteDists.push(currentRouteTotalLength);
+            }
+            
+            // Reset simulation variables when route changes
+            navDistance = 0;
+            lastProgressState = 0;
             
             // Calculate bounding box of all coordinates in the route wayfinding path
             const box = new THREE.Box3();
@@ -1378,8 +1452,25 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           lastRouteKeyRef.current = '';
         }
 
-        if (isNav && route && route.path.length >= 2) {
+        if (isNav && route && route.path.length >= 2 && currentRouteTotalLength > 0) {
           truckMesh.visible = true;
+          
+          // Increment simulation distance smoothly based on dt and speed (km/h)
+          const speedMps = stateRef.current.navSpeed * 0.27778; // Convert km/h to m/s
+          navDistance += speedMps * dt;
+          
+          if (navDistance >= currentRouteTotalLength) {
+            navDistance = currentRouteTotalLength;
+            setIsNavigating(false); // Stop simulation when done
+          }
+          
+          // Smoothly update progress percentage (as a float for ultra-smooth 2D maps)
+          const currentProgress = (navDistance / currentRouteTotalLength) * 100;
+          setNavProgress(currentProgress);
+          
+          // Interpolate smooth position and heading angle based on cumulative distance
+          const vPos = getPositionAndAngleAtDistance(currentRoutePoints, currentRouteDists, navDistance);
+          
           // Translate 2D map to 3D scene: X -> Z, Y -> X
           const truckX = vPos.y;
           const truckZ = vPos.x;
@@ -1398,9 +1489,12 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             const targetZ = truckZ;
             
             if (!hasSnappedRef.current) {
-              // First time starting navigation: zoom close and point forward along first segment!
-              const forwardX = Math.sin(rad);
-              const forwardZ = Math.cos(rad);
+              // First time starting navigation: reset variables, zoom close, and point forward!
+              navDistance = 0;
+              const freshVPos = getPositionAndAngleAtDistance(currentRoutePoints, currentRouteDists, 0);
+              const freshRad = (90 - freshVPos.angle) * Math.PI / 180;
+              const forwardX = Math.cos(freshRad);
+              const forwardZ = Math.sin(freshRad);
               
               const camX = targetX - forwardX * 60;
               const camY = targetY + 45;
@@ -2082,62 +2176,97 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       return { x: coords.x, y: coords.y, angle: 0 };
     }
 
-    const totalSegments = path.length - 1;
-    const segmentProgress = 100 / totalSegments;
-    const currentSegmentIndex = Math.min(
-      totalSegments - 1,
-      Math.floor(navProgress / segmentProgress)
-    );
-
-    const startNodeCoords = getNodeCoordinates(path[currentSegmentIndex]);
-    const endNodeCoords = getNodeCoordinates(path[currentSegmentIndex + 1]);
-
-    const t = (navProgress - (currentSegmentIndex * segmentProgress)) / segmentProgress;
-    const clampT = Math.max(0, Math.min(1, t));
-
-    const x = startNodeCoords.x + (endNodeCoords.x - startNodeCoords.x) * clampT;
-    const y = startNodeCoords.y + (endNodeCoords.y - startNodeCoords.y) * clampT;
-
-    const dx = endNodeCoords.x - startNodeCoords.x;
-    const dy = endNodeCoords.y - startNodeCoords.y;
-    let angle = Math.atan2(dy, dx) * (180 / Math.PI);
-
-    const dist = Math.hypot(dx, dy);
-    if (dist < 1.0) {
-      // Find a nearby segment with length >= 1.0m to borrow its heading angle
-      let fallbackAngle = null;
+    // Get all coordinates along route (including intermediate polyline points)
+    const pts: { x: number; y: number }[] = [];
+    for (let i = 0; i < path.length - 1; i++) {
+      const fromId = path[i];
+      const toId = path[i + 1];
+      const pathObj = paths.find(p => 
+        (p.from === fromId && p.to === toId) || 
+        (p.from === toId && p.to === fromId)
+      );
+      const fNode = DEFAULT_NODES[fromId];
+      const tNode = DEFAULT_NODES[toId];
+      if (!fNode || !tNode) continue;
       
-      // Look backward first
-      for (let i = currentSegmentIndex - 1; i >= 0; i--) {
-        const c1 = getNodeCoordinates(path[i]);
-        const c2 = getNodeCoordinates(path[i + 1]);
-        const d = Math.hypot(c2.x - c1.x, c2.y - c1.y);
-        if (d >= 1.0) {
-          fallbackAngle = Math.atan2(c2.y - c1.y, c2.x - c1.x) * (180 / Math.PI);
-          break;
-        }
+      if (i === 0) {
+        pts.push({ x: fNode.x, y: fNode.y });
       }
       
-      // Look forward if not found
-      if (fallbackAngle === null) {
-        for (let i = currentSegmentIndex + 1; i < totalSegments; i++) {
-          const c1 = getNodeCoordinates(path[i]);
-          const c2 = getNodeCoordinates(path[i + 1]);
-          const d = Math.hypot(c2.x - c1.x, c2.y - c1.y);
+      if (pathObj && pathObj.points && pathObj.points.length > 0) {
+        const isForward = pathObj.from === fromId;
+        const pointsList = isForward ? pathObj.points : [...pathObj.points].reverse();
+        pointsList.forEach(p => {
+          pts.push({ x: p[0], y: p[1] });
+        });
+      }
+      pts.push({ x: tNode.x, y: tNode.y });
+    }
+
+    // Calculate cumulative distances
+    const dists: number[] = [0];
+    let totalLength = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      totalLength += d;
+      dists.push(totalLength);
+    }
+
+    // Interpolate using navProgress (0 - 100) as percentage of total length
+    const clampProgress = Math.max(0, Math.min(100, navProgress));
+    const targetDist = (clampProgress / 100) * totalLength;
+
+    let i = 0;
+    while (i < dists.length - 1 && dists[i + 1] < targetDist) {
+      i++;
+    }
+
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const segLength = dists[i + 1] - dists[i];
+
+    let x = p1.x;
+    let y = p1.y;
+    let angle = 0;
+
+    if (segLength > 0) {
+      const t = (targetDist - dists[i]) / segLength;
+      x = p1.x + (p2.x - p1.x) * t;
+      y = p1.y + (p2.y - p1.y) * t;
+
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      angle = Math.atan2(dy, dx) * (180 / Math.PI);
+      
+      // If segment is very short (< 1m), borrow angle from nearest valid segment
+      if (segLength < 1.0) {
+        let fallbackAngle = null;
+        // Search backward
+        for (let j = i - 1; j >= 0; j--) {
+          const d = dists[j + 1] - dists[j];
           if (d >= 1.0) {
-            fallbackAngle = Math.atan2(c2.y - c1.y, c2.x - c1.x) * (180 / Math.PI);
+            fallbackAngle = Math.atan2(pts[j + 1].y - pts[j].y, pts[j + 1].x - pts[j].x) * (180 / Math.PI);
             break;
           }
         }
-      }
-      
-      if (fallbackAngle !== null) {
-        angle = fallbackAngle;
+        // Search forward
+        if (fallbackAngle === null) {
+          for (let j = i + 1; j < dists.length - 1; j++) {
+            const d = dists[j + 1] - dists[j];
+            if (d >= 1.0) {
+              fallbackAngle = Math.atan2(pts[j + 1].y - pts[j].y, pts[j + 1].x - pts[j].x) * (180 / Math.PI);
+              break;
+            }
+          }
+        }
+        if (fallbackAngle !== null) {
+          angle = fallbackAngle;
+        }
       }
     }
 
     return { x, y, angle };
-  }, [routeResult, navProgress, getNodeCoordinates]);
+  }, [routeResult, navProgress, getNodeCoordinates, paths]);
 
   // Keep state references for requestAnimationFrame loop without triggering re-effects
   const stateRef = useRef({
