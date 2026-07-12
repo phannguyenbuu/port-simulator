@@ -155,7 +155,7 @@ function findShortestPath(
 
     // If G is not an endpoint of any path and we found a closest segment
     // and the distance is > 0.1, we project G onto it
-    if (bestDist > 0.1 && bestPathId) {
+    if (bestPathId) {
       const projNodeId = `${bestPathId}_proj_${gateId}`;
       projections[bestPathId].push({
         gateId,
