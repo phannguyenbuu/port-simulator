@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { Stage, Layer, Circle, Line, Text as KonvaText, Group, RegularPolygon, Image, Path } from 'react-konva';
 import { routeData } from '../../data/routeData';
 
@@ -1049,10 +1050,22 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     let sceneBoundingBoxStr = '';
     setLoadingProgress(0);
 
+    const mtlLoader = new MTLLoader();
     const objLoader = new OBJLoader();
     const loadModel = (url: string): Promise<THREE.Group> => {
       return new Promise((resolve, reject) => {
         objLoader.load(url, resolve, undefined, reject);
+      });
+    };
+
+    const loadModelWithMtl = (objUrl: string, mtlUrl: string): Promise<THREE.Group> => {
+      return new Promise((resolve, reject) => {
+        mtlLoader.load(mtlUrl, (materials) => {
+          materials.preload();
+          const localObjLoader = new OBJLoader();
+          localObjLoader.setMaterials(materials);
+          localObjLoader.load(objUrl, resolve, undefined, reject);
+        }, undefined, reject);
       });
     };
 
@@ -1069,7 +1082,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     Promise.all([
       loadModel('/asset/general.obj'),
-      loadModel('/asset/truck.obj'),
+      loadModelWithMtl('/asset/truck.obj', '/asset/truck.mtl'),
       loadModel('/asset/pin.obj'),
       import('three/examples/jsm/lines/Line2.js'),
       import('three/examples/jsm/lines/LineGeometry.js'),
@@ -1113,14 +1126,11 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       // Scale is properly handled by targetSize above
       mainGroup.add(generalObj);
 
-      const truckClone = truckObj.clone();
+       const truckClone = truckObj.clone();
       truckClone.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          child.material = new THREE.MeshStandardMaterial({
-            color: 0xf59e0b, // Bright Amber truck
-            roughness: 0.4,
-            metalness: 0.8
-          });
+          child.castShadow = true;
+          child.receiveShadow = true;
         }
       });
       truckClone.scale.set(4.0, 4.0, 4.0); // Make it clearly visible on the road
