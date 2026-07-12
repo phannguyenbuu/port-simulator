@@ -758,37 +758,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const truckMeshRef = useRef<THREE.Group | null>(null);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
 
-  // Keep state references for requestAnimationFrame loop without triggering re-effects
-  const stateRef = useRef({
-    color,
-    roughness,
-    metalness,
-    transmission,
-    activeLighting,
-    autoRotateSpeed,
-    showWireframe,
-    viewportTheme,
-    isNavigating,
-    vehiclePosition,
-    routeResult,
-    cameraFollowTruck,
-  });
-
-  // Sync references
-  useEffect(() => {
-    stateRef.current.color = color;
-    stateRef.current.roughness = roughness;
-    stateRef.current.metalness = metalness;
-    stateRef.current.transmission = transmission;
-    stateRef.current.activeLighting = activeLighting;
-    stateRef.current.autoRotateSpeed = autoRotateSpeed;
-    stateRef.current.showWireframe = showWireframe;
-    stateRef.current.viewportTheme = viewportTheme;
-    stateRef.current.isNavigating = isNavigating;
-    stateRef.current.vehiclePosition = vehiclePosition;
-    stateRef.current.routeResult = routeResult;
-    stateRef.current.cameraFollowTruck = cameraFollowTruck;
-  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck]);
+  // references moved below vehiclePosition to avoid TDZ reference errors
 
   // Update system time
   useEffect(() => {
@@ -1790,6 +1760,38 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     return { x, y, angle };
   }, [routeResult, navProgress, getNodeCoordinates]);
+
+  // Keep state references for requestAnimationFrame loop without triggering re-effects
+  const stateRef = useRef({
+    color,
+    roughness,
+    metalness,
+    transmission,
+    activeLighting,
+    autoRotateSpeed,
+    showWireframe,
+    viewportTheme,
+    isNavigating,
+    vehiclePosition,
+    routeResult,
+    cameraFollowTruck,
+  });
+
+  // Sync references
+  useEffect(() => {
+    stateRef.current.color = color;
+    stateRef.current.roughness = roughness;
+    stateRef.current.metalness = metalness;
+    stateRef.current.transmission = transmission;
+    stateRef.current.activeLighting = activeLighting;
+    stateRef.current.autoRotateSpeed = autoRotateSpeed;
+    stateRef.current.showWireframe = showWireframe;
+    stateRef.current.viewportTheme = viewportTheme;
+    stateRef.current.isNavigating = isNavigating;
+    stateRef.current.vehiclePosition = vehiclePosition;
+    stateRef.current.routeResult = routeResult;
+    stateRef.current.cameraFollowTruck = cameraFollowTruck;
+  }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck]);
 
   // Dynamic viewBox for SVG mini-map to zoom fit wayfinding path
   const svgViewBox = useMemo(() => {
