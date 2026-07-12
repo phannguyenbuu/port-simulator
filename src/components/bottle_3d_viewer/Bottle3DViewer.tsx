@@ -1425,6 +1425,19 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     return { x: 250, y: 250 };
   }, [routeResult, paths, DEFAULT_NODES]);
 
+  // Helper to make duplicate node names unique by appending their region/position (e.g. PARK E Left/Right)
+  const getNodeDisplayName = useCallback((nodeId: string) => {
+    const node = DEFAULT_NODES[nodeId];
+    if (!node) return '';
+    
+    const duplicates = Object.values(DEFAULT_NODES).filter((n: any) => n.name === node.name);
+    if (duplicates.length > 1) {
+      const isLeft = node.x < 0;
+      return `${node.name} (${isLeft ? 'Khu Tây / Trái' : 'Khu Đông / Phải'})`;
+    }
+    return node.name;
+  }, [DEFAULT_NODES]);
+
   // Update wayfinding line in 3D scene when routeResult changes
   useEffect(() => {
     const wayfindingGroup = wayfindingGroupRef.current;
@@ -2224,7 +2237,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                       >
                         <option value="">---</option>
                         {Object.values(DEFAULT_NODES).map(node => (
-                          <option key={node.id} value={node.id}>{node.name}</option>
+                          <option key={node.id} value={node.id}>{getNodeDisplayName(node.id)}</option>
                         ))}
                       </select>
                     </div>
@@ -2263,7 +2276,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                       >
                         <option value="">---</option>
                         {Object.values(DEFAULT_NODES).map(node => (
-                          <option key={node.id} value={node.id}>{node.name}</option>
+                          <option key={node.id} value={node.id}>{getNodeDisplayName(node.id)}</option>
                         ))}
                       </select>
                     </div>
@@ -3300,7 +3313,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         >
                           <option value="">-- Chọn điểm đầu --</option>
                           {Object.values(nodes).map(node => (
-                            <option key={node.id} value={node.id}>{node.name}</option>
+                            <option key={node.id} value={node.id}>{getNodeDisplayName(node.id)}</option>
                           ))}
                         </select>
                         <select 
@@ -3310,7 +3323,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         >
                           <option value="">-- Chọn điểm cuối --</option>
                           {Object.values(nodes).map(node => (
-                            <option key={node.id} value={node.id}>{node.name}</option>
+                            <option key={node.id} value={node.id}>{getNodeDisplayName(node.id)}</option>
                           ))}
                         </select>
                         <input 
