@@ -3028,8 +3028,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                 </div>
                 
                 {/* React Konva Stage */}
-                <div style={{ width: '100%', height: '100%', backgroundColor: '#030712' }}>
-                  {renderAdminStage(canvasSize.width, canvasSize.height, false)}
+                <div style={{ width: '100%', height: '100%', backgroundColor: '#22c55e' }}>
+                  {renderAdminStage(canvasSize.width, canvasSize.height, true)}
                 </div>
               </div>
             </div>
