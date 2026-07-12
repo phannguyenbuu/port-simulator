@@ -1850,7 +1850,6 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             borderColor: '#334155',
             flex: 1,
           }}>
-            <div style={styles.mobileSpeaker} />
             <div style={styles.mobileScreen}>
               {/* Status Bar */}
               <div style={styles.statusBar}>
