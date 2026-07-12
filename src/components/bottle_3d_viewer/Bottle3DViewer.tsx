@@ -1055,10 +1055,15 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     
-    controls.addEventListener('start', () => {
+    const cancelTransition = () => {
       targetCameraPosRef.current = null;
       targetControlsTargetRef.current = null;
-    });
+      controls.enabled = true;
+    };
+    renderer.domElement.addEventListener('pointerdown', cancelTransition);
+    renderer.domElement.addEventListener('wheel', cancelTransition, { passive: true });
+    
+    controls.addEventListener('start', cancelTransition);
     controls.minDistance = 100.0;
     controls.maxDistance = 4000.0;
     controls.maxPolarAngle = Math.PI / 2 + 0.1; // Limit below ground plane
@@ -1371,18 +1376,27 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       animationFrameId = requestAnimationFrame(animate);
 
       // Smooth Camera transitions (Lerp)
-      if (targetCameraPosRef.current) {
-        camera.position.lerp(targetCameraPosRef.current, 0.08);
-        if (camera.position.distanceTo(targetCameraPosRef.current) < 1.0) {
-          camera.position.copy(targetCameraPosRef.current);
-          targetCameraPosRef.current = null;
+      const hasCameraTransition = !!targetCameraPosRef.current || !!targetControlsTargetRef.current;
+      if (hasCameraTransition) {
+        controls.enabled = false;
+        if (targetCameraPosRef.current) {
+          camera.position.lerp(targetCameraPosRef.current, 0.08);
+          if (camera.position.distanceTo(targetCameraPosRef.current) < 2.0) {
+            camera.position.copy(targetCameraPosRef.current);
+            targetCameraPosRef.current = null;
+          }
         }
-      }
-      if (targetControlsTargetRef.current) {
-        controls.target.lerp(targetControlsTargetRef.current, 0.08);
-        if (controls.target.distanceTo(targetControlsTargetRef.current) < 1.0) {
-          controls.target.copy(targetControlsTargetRef.current);
-          targetControlsTargetRef.current = null;
+        if (targetControlsTargetRef.current) {
+          controls.target.lerp(targetControlsTargetRef.current, 0.08);
+          if (controls.target.distanceTo(targetControlsTargetRef.current) < 2.0) {
+            controls.target.copy(targetControlsTargetRef.current);
+            targetControlsTargetRef.current = null;
+          }
+        }
+        // If transition finished, re-enable controls and update
+        if (!targetCameraPosRef.current && !targetControlsTargetRef.current) {
+          controls.enabled = true;
+          controls.update();
         }
       }
 
@@ -1793,6 +1807,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         if (handlePointerDown) renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
         if (handlePointerMove) renderer.domElement.removeEventListener('pointermove', handlePointerMove);
         if (handlePointerUp) renderer.domElement.removeEventListener('pointerup', handlePointerUp);
+        renderer.domElement.removeEventListener('pointerdown', cancelTransition);
+        renderer.domElement.removeEventListener('wheel', cancelTransition);
       }
       obstaclesGroupRef.current = null;
       
