@@ -1465,8 +1465,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           }
           
           // Smoothly update progress percentage (as a float for ultra-smooth 2D maps)
-          const currentProgress = (navDistance / currentRouteTotalLength) * 100;
-          setNavProgress(currentProgress);
+          const currentProgress = currentRouteTotalLength > 0 ? (navDistance / currentRouteTotalLength) * 100 : 0;
+          setNavProgress(isNaN(currentProgress) ? 0 : currentProgress);
           
           // Interpolate smooth position and heading angle based on cumulative distance
           const vPos = getPositionAndAngleAtDistance(currentRoutePoints, currentRouteDists, navDistance);
@@ -2212,9 +2212,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       dists.push(totalLength);
     }
 
-    // Interpolate using navProgress (0 - 100) as percentage of total length
-    const clampProgress = Math.max(0, Math.min(100, navProgress));
-    const targetDist = (clampProgress / 100) * totalLength;
+    // Interpolate using navProgress (0 - 100) as percentage of total length, protecting against NaN values
+    const clampProgress = isNaN(navProgress) ? 0 : Math.max(0, Math.min(100, navProgress));
+    const targetDist = totalLength > 0 ? (clampProgress / 100) * totalLength : 0;
 
     let i = 0;
     while (i < dists.length - 1 && dists[i + 1] < targetDist) {
@@ -2841,6 +2841,23 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                     strokeWidth={1}
                   />
                 ))}
+                
+                {/* Animating Vehicle Navigation Triangle on 2D Konva Stage */}
+                {isNavigating && (
+                  <RegularPolygon
+                    x={isMobile ? vehiclePosition.y : vehiclePosition.x}
+                    y={isMobile ? vehiclePosition.x : vehiclePosition.y}
+                    sides={3}
+                    radius={isMobile ? 10 : 8}
+                    rotation={isMobile ? vehiclePosition.angle + 90 : vehiclePosition.angle}
+                    fill="#f97316"
+                    stroke="#ffffff"
+                    strokeWidth={1.5}
+                    shadowColor="#000"
+                    shadowBlur={4}
+                    shadowOffset={{ x: 0, y: 1 }}
+                  />
+                )}
               </Group>
             );
           })()}
@@ -3298,161 +3315,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                     </div>
                   </div>
 
-                  {/* SVG mini-map area with animating navigation triangle */}
+                  {/* Standard 2D map component used for navigation */}
                   <div style={{ flex: 1, position: 'relative', backgroundColor: '#090d16', overflow: 'hidden' }}>
-                    <svg viewBox={svgViewBox} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
-                      {/* Render all paths in background */}
-                      {paths.map(path => {
-                        const fromNode = DEFAULT_NODES[path.from];
-                        const toNode = DEFAULT_NODES[path.to];
-                        const isFullyBlocked = path.obstacleStart && path.obstacleEnd;
-                        const hasRepair = path.obstacleStart || path.obstacleEnd;
-
-                        if (hasRepair) {
-                          const oxStart = fromNode.x + (toNode.x - fromNode.x) * 0.25;
-                          const oyStart = fromNode.y + (toNode.y - fromNode.y) * 0.25;
-                          const oxEnd = fromNode.x + (toNode.x - fromNode.x) * 0.75;
-                          const oyEnd = fromNode.y + (toNode.y - fromNode.y) * 0.75;
-
-                          return (
-                            <g key={path.id}>
-                              <line
-                                x1={fromNode.x}
-                                y1={fromNode.y}
-                                x2={oxStart}
-                                y2={oyStart}
-                                stroke="#334155"
-                                strokeWidth={3}
-                              />
-                              <line
-                                x1={oxStart}
-                                y1={oyStart}
-                                x2={oxEnd}
-                                y2={oyEnd}
-                                stroke={isFullyBlocked ? '#dc2626' : '#f97316'}
-                                strokeWidth={isFullyBlocked ? 2 : 3}
-                                strokeDasharray={isFullyBlocked ? '4 4' : '3 3'}
-                              />
-                              <line
-                                x1={oxEnd}
-                                y1={oyEnd}
-                                x2={toNode.x}
-                                y2={toNode.y}
-                                stroke="#334155"
-                                strokeWidth={3}
-                              />
-                            </g>
-                          );
-                        }
-
-                        return (
-                          <line
-                            key={path.id}
-                            x1={fromNode.x}
-                            y1={fromNode.y}
-                            x2={toNode.x}
-                            y2={toNode.y}
-                            stroke="#334155"
-                            strokeWidth={3}
-                          />
-                        );
-                      })}
-
-                      {/* Render active computed route line with continuous animated 2D arrows on SVG Map */}
-                      {routeResult && routeResult.path.length >= 2 && (() => {
-                        const points: string[] = [];
-                        const rawPoints: { x: number; y: number }[] = [];
-                        
-                        routeResult.path.forEach(nodeId => {
-                          const coords = getNodeCoordinates(nodeId);
-                          points.push(`${coords.x},${coords.y}`);
-                          rawPoints.push({ x: coords.x, y: coords.y });
-                        });
-                        
-                        const arrows = getRouteArrows(rawPoints, animationOffset, 30);
-                        
-                        return (
-                          <g>
-                            {/* Glow polyline */}
-                            <polyline
-                              points={points.join(' ')}
-                              fill="none"
-                              stroke="#38bdf8"
-                              strokeWidth={8}
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              opacity={0.3}
-                            />
-                            {/* Main polyline */}
-                            <polyline
-                              points={points.join(' ')}
-                              fill="none"
-                              stroke="#38bdf8"
-                              strokeWidth={4}
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            {/* SVG Animated Arrowheads */}
-                            {arrows.map((arrow, idx) => (
-                              <path
-                                key={idx}
-                                d="M-5,-4 L5,0 L-5,4 Z"
-                                fill="#f97316"
-                                stroke="#ffffff"
-                                strokeWidth={1}
-                                transform={`translate(${arrow.x}, ${arrow.y}) rotate(${arrow.angle})`}
-                              />
-                            ))}
-                          </g>
-                        );
-                      })()}
-
-                      {Object.values(DEFAULT_NODES).map(node => {
-                        const isActive = routeResult?.path.includes(node.id);
-                        const mapName = (node.name || '').toLowerCase();
-                        const matchKey = Object.keys(materialsMap).find(k => mapName.includes(k.toLowerCase())) || 'gate';
-                        const nodeColor = materialsMap[matchKey] || '#64748b';
-                        return (
-                          <circle
-                            key={node.id}
-                            cx={node.x}
-                            cy={node.y}
-                            r={isActive ? 6 : 4}
-                            fill={node.id === startNode ? '#22c55e' : node.id === endNode ? '#ef4444' : nodeColor}
-                            stroke="#000"
-                            strokeWidth={1}
-                          />
-                        );
-                      })}
-
-                      {/* Render custom obstacles on SVG map */}
-                      {customObstacles.map(obs => {
-                        const isSelected = obs.id === selectedObstacleId;
-                        return (
-                          <circle
-                            key={obs.id}
-                            cx={obs.projX}
-                            cy={obs.projY}
-                            r={isSelected ? 6 : 4}
-                            fill={isSelected ? '#a855f7' : '#ef4444'}
-                            stroke="#ffffff"
-                            strokeWidth={1}
-                          />
-                        );
-                      })}
-
-                      {/* Animating Vehicle Navigation Triangle */}
-                      {routeResult && (
-                        <g transform={`translate(${vehiclePosition.x}, ${vehiclePosition.y}) rotate(${vehiclePosition.angle})`}>
-                          <path
-                            d="M-8,-6 L10,0 L-8,6 L-4,0 Z"
-                            fill="#f97316"
-                            stroke="#ffffff"
-                            strokeWidth={1.5}
-                          />
-                        </g>
-                      )}
-                    </svg>
+                    {renderAdminStage(356, Math.round(window.innerHeight * 0.5), true)}
 
                     {/* Floating Side Buttons (Mute, Compass, GPS Lock, Settings) */}
                     <div style={{ position: 'absolute', right: '12px', top: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
