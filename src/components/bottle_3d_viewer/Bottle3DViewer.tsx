@@ -785,7 +785,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const [isNavigating, setIsNavigating] = useState<boolean>(false);
   const [animationOffset, setAnimationOffset] = useState<number>(0);
   const [cameraFollowTruck, setCameraFollowTruck] = useState<boolean>(true);
-  const [navSpeed, setNavSpeed] = useState<number>(120); // ms per simulation tick
+  const [navSpeed, setNavSpeed] = useState<number>(25); // km/h (speed of simulation)
   
   const [visitStatus, setVisitStatus] = useState<'done' | 'failed' | 'skipped'>('done');
   const [visitNotes, setVisitNotes] = useState<string>('');
@@ -862,6 +862,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       return prev + 0.5; // Start moving immediately
     });
 
+    const intervalMs = Math.round(3000 / navSpeed);
+
     const timer = setInterval(() => {
       setNavProgress(prev => {
         if (prev >= 100) {
@@ -870,7 +872,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         }
         return prev + 1; // Increment by 1% each tick
       });
-    }, navSpeed);
+    }, intervalMs);
 
     return () => clearInterval(timer);
   }, [isNavigating, navSpeed]);
@@ -1841,7 +1843,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     
     if (pathWidth === 0 && pathHeight === 0) return;
     
-    const padding = 60;
+    const padding = 25;
     const targetW = pathWidth + padding * 2;
     const targetH = pathHeight + padding * 2;
     
@@ -2197,9 +2199,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     const w = maxX - minX;
     const h = maxY - minY;
     
-    // Add 25% padding around the path
-    const padX = Math.max(50, w * 0.25);
-    const padY = Math.max(50, h * 0.25);
+    // Add 8% padding around the path for tighter fit
+    const padX = Math.max(20, w * 0.08);
+    const padY = Math.max(20, h * 0.08);
     
     return `${minX - padX} ${minY - padY} ${w + padX * 2} ${h + padY * 2}`;
   }, [routeResult, getNodeCoordinates]);
@@ -3115,13 +3117,13 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         {/* Simulation Interval Speed Slider */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>SIMULATION INTERVAL SPEED</span>
-                            <span style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 'bold' }}>{navSpeed} ms</span>
+                            <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>TRUCK SPEED (Port Limit: 40 km/h)</span>
+                            <span style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 'bold' }}>{navSpeed} km/h</span>
                           </div>
                           <input
                             type="range"
-                            min="20"
-                            max="500"
+                            min="5"
+                            max="40"
                             value={navSpeed}
                             onChange={(e) => setNavSpeed(Number(e.target.value))}
                             style={{
@@ -3362,7 +3364,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                         40
                       </div>
                       <div style={{ backgroundColor: 'rgba(15,23,42,0.85)', border: '1px solid #334155', padding: '4px 6px', borderRadius: '4px', color: '#38bdf8', fontSize: '10px', fontWeight: 'bold', textAlign: 'center' }}>
-                        {isNavigating ? '25 km/h' : '0 km/h'}
+                        {isNavigating ? `${navSpeed} km/h` : '0 km/h'}
                       </div>
                     </div>
                   </div>
