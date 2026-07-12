@@ -802,6 +802,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const lastRouteKeyRef = useRef<string>('');
   const hasSnappedRef = useRef<boolean>(false);
   const navStartTimeRef = useRef<Date>(new Date());
+  const manualNavProgressRef = useRef<number | null>(null);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
 
   // references moved below vehiclePosition to avoid TDZ reference errors
@@ -1553,6 +1554,12 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
         if (isNav && route && route.path.length >= 2 && currentRouteTotalLength > 0) {
           truckMesh.visible = true;
+          
+          // Sync with manual progress slider seeking
+          if (manualNavProgressRef.current !== null) {
+            navDistance = (manualNavProgressRef.current / 100) * currentRouteTotalLength;
+            manualNavProgressRef.current = null;
+          }
           
           // Increment simulation distance smoothly based on dt and speed (km/h)
           const speedMps = stateRef.current.navSpeed * 0.27778; // Convert km/h to m/s
@@ -3710,8 +3717,31 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                     </label>
 
                     {/* Progress Bar slider */}
-                    <div style={{ width: '100%', height: '4px', backgroundColor: '#334155', borderRadius: '2px', overflow: 'hidden', position: 'relative' }}>
-                      <div style={{ width: `${navProgress}%`, height: '100%', backgroundColor: '#f97316', transition: 'width 0.12s linear' }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', margin: '4px 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.5px' }}>ROUTE PROGRESS</span>
+                        <span style={{ fontSize: '10px', color: '#f97316', fontWeight: 'bold' }}>{Math.round(navProgress)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={navProgress}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setNavProgress(val);
+                          manualNavProgressRef.current = val;
+                        }}
+                        style={{
+                          width: '100%',
+                          accentColor: '#f97316',
+                          background: '#334155',
+                          height: '4px',
+                          borderRadius: '2px',
+                          cursor: 'pointer'
+                        }}
+                      />
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px' }}>
