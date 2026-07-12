@@ -748,18 +748,6 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const [isNavigating, setIsNavigating] = useState<boolean>(false);
   const [animationOffset, setAnimationOffset] = useState<number>(0);
   
-  // Continuous 2D wayfinding arrow offset animation tick
-  useEffect(() => {
-    if (!routeResult) return;
-    let animId: number;
-    const tick = () => {
-      setAnimationOffset(prev => prev + 1.5);
-      animId = requestAnimationFrame(tick);
-    };
-    animId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animId);
-  }, [routeResult]);
-
   const [visitStatus, setVisitStatus] = useState<'done' | 'failed' | 'skipped'>('done');
   const [visitNotes, setVisitNotes] = useState<string>('');
   const [isAudioMuted, setIsAudioMuted] = useState<boolean>(false);
@@ -1373,6 +1361,18 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const routeResult = useMemo(() => {
     return findShortestPath(DEFAULT_NODES, paths, startNode, endNode);
   }, [paths, startNode, endNode]);
+
+  // Continuous 2D wayfinding arrow offset animation tick
+  useEffect(() => {
+    if (!routeResult) return;
+    let animId: number;
+    const tick = () => {
+      setAnimationOffset(prev => prev + 1.5);
+      animId = requestAnimationFrame(tick);
+    };
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  }, [routeResult]);
 
 
 
