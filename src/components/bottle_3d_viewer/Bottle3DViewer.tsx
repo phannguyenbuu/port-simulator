@@ -2042,7 +2042,41 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     const dx = endNodeCoords.x - startNodeCoords.x;
     const dy = endNodeCoords.y - startNodeCoords.y;
-    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1.0) {
+      // Find a nearby segment with length >= 1.0m to borrow its heading angle
+      let fallbackAngle = null;
+      
+      // Look backward first
+      for (let i = currentSegmentIndex - 1; i >= 0; i--) {
+        const c1 = getNodeCoordinates(path[i]);
+        const c2 = getNodeCoordinates(path[i + 1]);
+        const d = Math.hypot(c2.x - c1.x, c2.y - c1.y);
+        if (d >= 1.0) {
+          fallbackAngle = Math.atan2(c2.y - c1.y, c2.x - c1.x) * (180 / Math.PI);
+          break;
+        }
+      }
+      
+      // Look forward if not found
+      if (fallbackAngle === null) {
+        for (let i = currentSegmentIndex + 1; i < totalSegments; i++) {
+          const c1 = getNodeCoordinates(path[i]);
+          const c2 = getNodeCoordinates(path[i + 1]);
+          const d = Math.hypot(c2.x - c1.x, c2.y - c1.y);
+          if (d >= 1.0) {
+            fallbackAngle = Math.atan2(c2.y - c1.y, c2.x - c1.x) * (180 / Math.PI);
+            break;
+          }
+        }
+      }
+      
+      if (fallbackAngle !== null) {
+        angle = fallbackAngle;
+      }
+    }
 
     return { x, y, angle };
   }, [routeResult, navProgress, getNodeCoordinates]);
