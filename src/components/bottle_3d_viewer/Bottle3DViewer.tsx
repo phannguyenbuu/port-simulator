@@ -1318,107 +1318,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     return findShortestPath(DEFAULT_NODES, paths, startNode, endNode);
   }, [paths, startNode, endNode]);
 
-  // Update wayfinding line in 3D scene when routeResult changes
-  useEffect(() => {
-    const wayfindingGroup = wayfindingGroupRef.current;
-    if (!wayfindingGroup) return;
 
-    // Clear existing wayfinding line
-    while (wayfindingGroup.children.length > 0) {
-      const child = wayfindingGroup.children[0];
-      if (child instanceof THREE.Mesh || (child as any).isLine2) {
-        child.geometry.dispose();
-        if (Array.isArray(child.material)) {
-          child.material.forEach((m: any) => m.dispose());
-        } else {
-          child.material.dispose();
-        }
-      }
-      wayfindingGroup.remove(child);
-    }
-
-    if (!routeResult || routeResult.path.length < 2) return;
-
-    let isSubscribed = true;
-
-    // Dynamically load Line2 modules
-    Promise.all([
-      import('three/examples/jsm/lines/Line2.js'),
-      import('three/examples/jsm/lines/LineGeometry.js'),
-      import('three/examples/jsm/lines/LineMaterial.js')
-    ]).then(([line2Module, geometryModule, materialModule]) => {
-      if (!isSubscribed || !wayfindingGroupRef.current) return;
-
-      const { Line2 } = line2Module;
-      const { LineGeometry } = geometryModule;
-      const { LineMaterial } = materialModule;
-
-      const pointsCoords: number[] = [];
-      routeResult.path.forEach(nodeId => {
-        const coords = getNodeCoordinates(nodeId);
-        // Translate 2D map to 3D scene: X -> Z, Y -> X (matching road rendering)
-        pointsCoords.push(coords.y, 0, coords.x);
-      });
-
-      const geometry = new LineGeometry();
-      geometry.setPositions(pointsCoords);
-
-      // Create arrow pattern texture using HTML canvas
-      const canvas = document.createElement('canvas');
-      canvas.width = 128;
-      canvas.height = 32;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = 'rgba(0,0,0,0)';
-        ctx.fillRect(0, 0, 128, 32);
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.moveTo(10, 16);
-        ctx.lineTo(80, 16);
-        ctx.lineTo(80, 6);
-        ctx.lineTo(118, 16);
-        ctx.lineTo(80, 26);
-        ctx.lineTo(80, 16);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.RepeatWrapping;
-
-      // Repeat texture based on path length
-      let totalLength = 0;
-      for (let i = 0; i < routeResult.path.length - 1; i++) {
-        const c1 = getNodeCoordinates(routeResult.path[i]);
-        const c2 = getNodeCoordinates(routeResult.path[i+1]);
-        totalLength += Math.hypot(c1.x - c2.x, c1.y - c2.y);
-      }
-      texture.repeat.set(Math.max(1, totalLength / 15), 1); // 1 arrow every 15 units
-
-      const container = mountRef.current;
-      const material = new LineMaterial({
-        color: 0xff0000, // Red animated path
-        map: texture,
-        useMap: true,
-        linewidth: 7, // Highly visible
-        transparent: true,
-        opacity: 0.95,
-        resolution: new THREE.Vector2(container ? container.clientWidth : 800, container ? container.clientHeight : 600)
-      });
-
-      const line = new Line2(geometry, material);
-      line.computeLineDistances();
-      wayfindingGroup.add(line);
-
-      (line as any).isWayfinding = true;
-      (line as any).texture = texture;
-    });
-
-    return () => {
-      isSubscribed = false;
-    };
-  }, [routeResult, getNodeCoordinates]);
 
   // Admin action handlers
 
@@ -1524,6 +1424,108 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     }
     return { x: 250, y: 250 };
   }, [routeResult, paths, DEFAULT_NODES]);
+
+  // Update wayfinding line in 3D scene when routeResult changes
+  useEffect(() => {
+    const wayfindingGroup = wayfindingGroupRef.current;
+    if (!wayfindingGroup) return;
+
+    // Clear existing wayfinding line
+    while (wayfindingGroup.children.length > 0) {
+      const child = wayfindingGroup.children[0];
+      if (child instanceof THREE.Mesh || (child as any).isLine2) {
+        child.geometry.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m: any) => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+      wayfindingGroup.remove(child);
+    }
+
+    if (!routeResult || routeResult.path.length < 2) return;
+
+    let isSubscribed = true;
+
+    // Dynamically load Line2 modules
+    Promise.all([
+      import('three/examples/jsm/lines/Line2.js'),
+      import('three/examples/jsm/lines/LineGeometry.js'),
+      import('three/examples/jsm/lines/LineMaterial.js')
+    ]).then(([line2Module, geometryModule, materialModule]) => {
+      if (!isSubscribed || !wayfindingGroupRef.current) return;
+
+      const { Line2 } = line2Module;
+      const { LineGeometry } = geometryModule;
+      const { LineMaterial } = materialModule;
+
+      const pointsCoords: number[] = [];
+      routeResult.path.forEach(nodeId => {
+        const coords = getNodeCoordinates(nodeId);
+        // Translate 2D map to 3D scene: X -> Z, Y -> X (matching road rendering)
+        pointsCoords.push(coords.y, 0, coords.x);
+      });
+
+      const geometry = new LineGeometry();
+      geometry.setPositions(pointsCoords);
+
+      // Create arrow pattern texture using HTML canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = 'rgba(0,0,0,0)';
+        ctx.fillRect(0, 0, 128, 32);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(10, 16);
+        ctx.lineTo(80, 16);
+        ctx.lineTo(80, 6);
+        ctx.lineTo(118, 16);
+        ctx.lineTo(80, 26);
+        ctx.lineTo(80, 16);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+
+      // Repeat texture based on path length
+      let totalLength = 0;
+      for (let i = 0; i < routeResult.path.length - 1; i++) {
+        const c1 = getNodeCoordinates(routeResult.path[i]);
+        const c2 = getNodeCoordinates(routeResult.path[i+1]);
+        totalLength += Math.hypot(c1.x - c2.x, c1.y - c2.y);
+      }
+      texture.repeat.set(Math.max(1, totalLength / 15), 1); // 1 arrow every 15 units
+
+      const container = mountRef.current;
+      const material = new LineMaterial({
+        color: 0xff0000, // Red animated path
+        map: texture,
+        useMap: true,
+        linewidth: 7, // Highly visible
+        transparent: true,
+        opacity: 0.95,
+        resolution: new THREE.Vector2(container ? container.clientWidth : 800, container ? container.clientHeight : 600)
+      });
+
+      const line = new Line2(geometry, material);
+      line.computeLineDistances();
+      wayfindingGroup.add(line);
+
+      (line as any).isWayfinding = true;
+      (line as any).texture = texture;
+    });
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [routeResult, getNodeCoordinates]);
 
   // Vehicle coordinate & angle interpolation for Screen 2 GPS Map simulation
   const vehiclePosition = useMemo(() => {
