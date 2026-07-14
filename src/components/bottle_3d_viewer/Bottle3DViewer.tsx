@@ -2486,6 +2486,12 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   // Update wayfinding line in 3D scene when routeResult changes
   useEffect(() => {
     const wayfindingGroup = wayfindingGroupRef.current;
+    console.log("[Wayfinding Debug] useEffect triggered:", {
+      is3DReady,
+      hasWayfindingGroup: !!wayfindingGroup,
+      path: routeResult?.path,
+      pathLength: routeResult?.path?.length
+    });
     if (!wayfindingGroup) return;
 
     // Clear existing wayfinding line
