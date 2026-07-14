@@ -1572,36 +1572,6 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             // Reset simulation variables when route changes
             navDistance = 0;
             lastProgressState = 0;
-            
-            // Calculate bounding box of all coordinates in the route wayfinding path
-            const box = new THREE.Box3();
-            route.path.forEach(nodeId => {
-              const coords = getLocalNodeCoordinates(nodeId);
-              box.expandByPoint(new THREE.Vector3(coords.y, 0.0, coords.x));
-            });
-            
-            const center = new THREE.Vector3();
-            box.getCenter(center);
-            
-            const size = new THREE.Vector3();
-            box.getSize(size);
-            const maxDim = Math.max(size.x, size.y, size.z);
-            
-            if (maxDim > 0) {
-              const fovRad = (camera.fov * Math.PI) / 180;
-              let distance = maxDim / (2 * Math.tan(fovRad / 2));
-              distance *= 1.4; // 1.4x padding for clean fit
-              distance = Math.max(distance, 200); // keep a minimum distance
-              
-              // Get current camera look direction
-              const dir = new THREE.Vector3();
-              camera.getWorldDirection(dir);
-              
-              // Position camera along current direction from box center
-              controls.target.copy(center);
-              camera.position.copy(center).addScaledVector(dir, -distance);
-              controls.update();
-            }
           }
         } else {
           lastRouteKeyRef.current = '';
