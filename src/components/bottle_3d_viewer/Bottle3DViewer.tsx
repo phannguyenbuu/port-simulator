@@ -795,6 +795,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const obstaclesGroupRef = useRef<THREE.Group | null>(null);
   const pinObjRef = useRef<THREE.Group | null>(null);
   const previewPinRef = useRef<THREE.Group | null>(null);
+  const hoverSegmentLineRef = useRef<THREE.Line | null>(null);
   const truckMeshRef = useRef<THREE.Group | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<any | null>(null);
@@ -1376,6 +1377,21 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         previewPinRef.current = previewPin;
       }
 
+      // Initialize road segment hover highlight indicator
+      const hoverSegmentLine = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({
+          color: 0xef4444,
+          transparent: true,
+          opacity: 0.8,
+          linewidth: 4
+        })
+      );
+      hoverSegmentLine.renderOrder = 999;
+      hoverSegmentLine.visible = false;
+      mainGroup.add(hoverSegmentLine);
+      hoverSegmentLineRef.current = hoverSegmentLine;
+
       mainGroup.position.y = 0.0;
       scene.add(mainGroup);
       bottleMesh = mainGroup;
@@ -1773,6 +1789,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         if (previewPinRef.current) {
           previewPinRef.current.visible = false;
         }
+        if (hoverSegmentLineRef.current) {
+          hoverSegmentLineRef.current.visible = false;
+        }
       } else if (stateRef.current.activeTool === 'obstacle') {
         // Hover preview mode when activeTool is obstacle
         const rect = renderer.domElement.getBoundingClientRect();
@@ -1790,14 +1809,27 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           if (proj.pathId && previewPinRef.current) {
             previewPinRef.current.position.set(proj.projY, 0.0, proj.projX);
             previewPinRef.current.visible = true;
-          } else if (previewPinRef.current) {
-            previewPinRef.current.visible = false;
+
+            // Highlight road segment in red
+            if (proj.segStart && proj.segEnd && hoverSegmentLineRef.current) {
+              const pts = [
+                new THREE.Vector3(proj.segStart.y, 0.2, proj.segStart.x),
+                new THREE.Vector3(proj.segEnd.y, 0.2, proj.segEnd.x)
+              ];
+              hoverSegmentLineRef.current.geometry.setFromPoints(pts);
+              hoverSegmentLineRef.current.visible = true;
+            }
+          } else {
+            if (previewPinRef.current) previewPinRef.current.visible = false;
+            if (hoverSegmentLineRef.current) hoverSegmentLineRef.current.visible = false;
           }
-        } else if (previewPinRef.current) {
-          previewPinRef.current.visible = false;
+        } else {
+          if (previewPinRef.current) previewPinRef.current.visible = false;
+          if (hoverSegmentLineRef.current) hoverSegmentLineRef.current.visible = false;
         }
-      } else if (previewPinRef.current) {
-        previewPinRef.current.visible = false;
+      } else {
+        if (previewPinRef.current) previewPinRef.current.visible = false;
+        if (hoverSegmentLineRef.current) hoverSegmentLineRef.current.visible = false;
       }
     };
 
@@ -1870,12 +1902,60 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       if (previewPinRef.current) {
         previewPinRef.current.visible = false;
       }
+      if (hoverSegmentLineRef.current) {
+        hoverSegmentLineRef.current.visible = false;
+      }
+    };
+
+    const handleDoubleClick = (e: MouseEvent) => {
+      if (!obstaclesGroupRef.current) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(obstaclesGroupRef.current.children, true);
+      if (intersects.length > 0) {
+        let obj: THREE.Object3D | null = intersects[0].object;
+        while (obj && !obj.userData.obstacleId) {
+          obj = obj.parent;
+        }
+        if (obj && obj.userData.obstacleId) {
+          const obsId = obj.userData.obstacleId;
+          setCustomObstacles(prev => prev.filter(o => o.id !== obsId));
+          setSelectedObstacleId(null);
+        }
+      }
+    };
+
+    const handleContextMenu = (e: MouseEvent) => {
+      if (!obstaclesGroupRef.current) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(obstaclesGroupRef.current.children, true);
+      if (intersects.length > 0) {
+        let obj: THREE.Object3D | null = intersects[0].object;
+        while (obj && !obj.userData.obstacleId) {
+          obj = obj.parent;
+        }
+        if (obj && obj.userData.obstacleId) {
+          e.preventDefault(); // Prevent standard browser right-click menu
+          const obsId = obj.userData.obstacleId;
+          setCustomObstacles(prev => prev.filter(o => o.id !== obsId));
+          setSelectedObstacleId(null);
+        }
+      }
     };
 
     renderer.domElement.addEventListener('pointerdown', handlePointerDown);
     renderer.domElement.addEventListener('pointermove', handlePointerMove);
     renderer.domElement.addEventListener('pointerup', handlePointerUp);
     renderer.domElement.addEventListener('pointerleave', handlePointerLeave);
+    renderer.domElement.addEventListener('dblclick', handleDoubleClick);
+    renderer.domElement.addEventListener('contextmenu', handleContextMenu);
     };
     
     const resizeObserver = new ResizeObserver(() => {
@@ -1892,11 +1972,13 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       cameraRef.current = null;
       controlsRef.current = null;
       
-      if (renderer.domElement) {
+       if (renderer.domElement) {
         if (handlePointerDown) renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
         if (handlePointerMove) renderer.domElement.removeEventListener('pointermove', handlePointerMove);
         if (handlePointerUp) renderer.domElement.removeEventListener('pointerup', handlePointerUp);
         if (handlePointerLeave) renderer.domElement.removeEventListener('pointerleave', handlePointerLeave);
+        if (handleDoubleClick) renderer.domElement.removeEventListener('dblclick', handleDoubleClick);
+        if (handleContextMenu) renderer.domElement.removeEventListener('contextmenu', handleContextMenu);
         renderer.domElement.removeEventListener('pointerdown', cancelTransition);
         renderer.domElement.removeEventListener('wheel', cancelTransition);
       }
@@ -1935,6 +2017,26 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       }
     };
   }, [materialsMap]);
+
+  // Keyboard Delete / Backspace listener to delete selected custom obstacle
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObstacleId) {
+        // Prevent deletion if the user is typing in form controls (inputs, textareas, etc.)
+        if (
+          document.activeElement?.tagName === 'INPUT' || 
+          document.activeElement?.tagName === 'TEXTAREA' ||
+          document.activeElement?.getAttribute('contenteditable') === 'true'
+        ) {
+          return;
+        }
+        setCustomObstacles(prev => prev.filter(o => o.id !== selectedObstacleId));
+        setSelectedObstacleId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedObstacleId]);
 
   // Pathfinding result
   const routeResult = useMemo(() => {
@@ -2200,6 +2302,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     let bestProjY = y;
     let bestSegIndex = 0;
     let bestT = 0;
+    let bestSegStart: { x: number; y: number } | null = null;
+    let bestSegEnd: { x: number; y: number } | null = null;
 
     // Use stateRef.current.paths to avoid stale React closures in 3D pointer handlers
     const currentPaths = stateRef.current?.paths || paths;
@@ -2235,11 +2339,22 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           bestProjY = py;
           bestSegIndex = i;
           bestT = tVal;
+          bestSegStart = u;
+          bestSegEnd = v;
         }
       }
     });
 
-    return { pathId: bestPathId, projX: bestProjX, projY: bestProjY, segIndex: bestSegIndex, t: bestT, dist: bestDist };
+    return { 
+      pathId: bestPathId, 
+      projX: bestProjX, 
+      projY: bestProjY, 
+      segIndex: bestSegIndex, 
+      t: bestT, 
+      dist: bestDist,
+      segStart: bestSegStart,
+      segEnd: bestSegEnd
+    };
   }, [paths, DEFAULT_NODES]);
 
   // Update wayfinding line in 3D scene when routeResult changes
@@ -2563,8 +2678,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     stateRef.current.navSpeed = navSpeed;
     stateRef.current.mobileScreen = mobileScreen;
 
-    if (activeTool !== 'obstacle' && previewPinRef.current) {
-      previewPinRef.current.visible = false;
+    if (activeTool !== 'obstacle') {
+      if (previewPinRef.current) previewPinRef.current.visible = false;
+      if (hoverSegmentLineRef.current) hoverSegmentLineRef.current.visible = false;
     }
   }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck, activeTool, customObstacles, selectedObstacleId, nodes, paths, navSpeed, mobileScreen]);
 
