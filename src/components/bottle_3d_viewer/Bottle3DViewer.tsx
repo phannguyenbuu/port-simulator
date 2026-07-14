@@ -914,6 +914,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     let handlePointerDown: (e: PointerEvent) => void;
     let handlePointerMove: (e: PointerEvent) => void;
     let handlePointerUp: (e: PointerEvent) => void;
+    let handlePointerLeave: () => void;
+    let handleDoubleClick: (e: MouseEvent) => void;
+    let handleContextMenu: (e: MouseEvent) => void;
     let generalObj: THREE.Group | null = null;
 
     let currentRoutePoints: { x: number; y: number }[] = [];
@@ -1974,7 +1977,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       }
     };
 
-    const handlePointerLeave = () => {
+    handlePointerLeave = () => {
       if (previewPinRef.current) {
         previewPinRef.current.visible = false;
       }
@@ -1983,7 +1986,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       }
     };
 
-    const handleDoubleClick = (e: MouseEvent) => {
+    handleDoubleClick = (e: MouseEvent) => {
       if (!obstaclesGroupRef.current) return;
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -2004,7 +2007,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       }
     };
 
-    const handleContextMenu = (e: MouseEvent) => {
+    handleContextMenu = (e: MouseEvent) => {
       if (!obstaclesGroupRef.current) return;
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
