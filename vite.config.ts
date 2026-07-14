@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:5005',
+        target: 'https://port.n-lux.com',
         changeOrigin: true,
         secure: false,
       }
