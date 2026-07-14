@@ -34,7 +34,15 @@ def save_config():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-MATERIAL_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public', 'asset', 'material.json')
+# Dynamic path resolution for material.json to handle differences between local dev and VPS structures
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+local_path = os.path.join(base_dir, 'public', 'asset', 'material.json')
+vps_path = os.path.join(base_dir, 'asset', 'material.json')
+
+if os.path.exists(os.path.dirname(local_path)):
+    MATERIAL_FILE = local_path
+else:
+    MATERIAL_FILE = vps_path
 
 @app.route('/api/material', methods=['GET'])
 def get_material():
@@ -63,4 +71,5 @@ def save_material():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(port=5001, debug=True)
+    port = int(os.environ.get('PORT', 5005))
+    app.run(port=port, debug=True)

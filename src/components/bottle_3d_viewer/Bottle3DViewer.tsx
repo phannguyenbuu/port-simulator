@@ -2144,7 +2144,10 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     let bestSegIndex = 0;
     let bestT = 0;
 
-    paths.forEach(p => {
+    // Use stateRef.current.paths to avoid stale React closures in 3D pointer handlers
+    const currentPaths = stateRef.current?.paths || paths;
+
+    currentPaths.forEach(p => {
       const fNode = DEFAULT_NODES[p.from];
       const tNode = DEFAULT_NODES[p.to];
       if (!fNode || !tNode) return;
@@ -2312,7 +2315,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     // Render new custom obstacles
     customObstacles.forEach(obs => {
       const pinClone = pinObj.clone();
-      pinClone.scale.set(2.0, 2.0, 2.0); // Size * 2
+      pinClone.scale.set(1.5, 1.5, 1.5); // Set scale to 1.5x
       
       pinClone.traverse((child) => {
         if (child instanceof THREE.Mesh) {
@@ -2322,8 +2325,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         }
       });
 
-      // Coordinates in 3D: X -> Z, Y -> X (matching road coordinates)
-      pinClone.position.set(obs.projY, 0.0, obs.projX);
+      // Position the pin at the exact clicked 3D point (y, 0.0, x) like a chess piece on a board
+      pinClone.position.set(obs.y, 0.0, obs.x);
       pinClone.userData = { obstacleId: obs.id };
 
       obstaclesGroup.add(pinClone);
