@@ -2430,9 +2430,14 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       const tNode = DEFAULT_NODES[p.to];
       if (!fNode || !tNode) return;
 
-      const baseSeq = p.points && p.points.length > 0
-        ? p.points.map(pt => ({ x: pt[0], y: pt[1] }))
-        : [{ x: fNode.x, y: fNode.y }, { x: tNode.x, y: tNode.y }];
+      const baseSeq = [];
+      baseSeq.push({ x: fNode.x, y: fNode.y });
+      if (p.points && p.points.length > 0) {
+        p.points.forEach(pt => {
+          baseSeq.push({ x: pt[0], y: pt[1] });
+        });
+      }
+      baseSeq.push({ x: tNode.x, y: tNode.y });
 
       for (let i = 0; i < baseSeq.length - 1; i++) {
         const u = baseSeq[i];
