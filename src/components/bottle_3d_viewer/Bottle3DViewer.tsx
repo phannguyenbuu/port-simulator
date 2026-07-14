@@ -2325,8 +2325,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         }
       });
 
-      // Position the pin at the exact clicked 3D point (y, 0.0, x) like a chess piece on a board
-      pinClone.position.set(obs.y, 0.0, obs.x);
+      // Position the pin snapped to the nearest road path segment according to projection
+      pinClone.position.set(obs.projY, 0.0, obs.projX);
       pinClone.userData = { obstacleId: obs.id };
 
       obstaclesGroup.add(pinClone);
@@ -3272,6 +3272,28 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
               gap: '6px',
               zIndex: 10,
             }}>
+              {/* Obstacle Mode Toggle Button */}
+              <button 
+                onClick={() => {
+                  setActiveTool(prev => prev === 'obstacle' ? 'select' : 'obstacle');
+                  setSelectedObstacleId(null);
+                  setSelectedNodeId(null);
+                  setSelectedPathId(null);
+                }} 
+                style={{ 
+                  ...styles.camToolBtn, 
+                  backgroundColor: activeTool === 'obstacle' ? 'rgba(239, 68, 68, 0.95)' : 'rgba(15, 23, 42, 0.75)',
+                  borderColor: activeTool === 'obstacle' ? '#ef4444' : 'rgba(255, 255, 255, 0.08)',
+                  color: activeTool === 'obstacle' ? '#ffffff' : '#e2e8f0',
+                  boxShadow: activeTool === 'obstacle' ? '0 0 8px rgba(239, 68, 68, 0.5)' : 'none',
+                }} 
+                title={activeTool === 'obstacle' ? "Switch to Select Mode" : "Activate Place Obstacle Mode"}
+              >
+                🚧
+              </button>
+              
+              <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
+
               {/* Navigation Controls */}
               <button onClick={() => handleMoveCamera('up')} style={styles.camToolBtn} title="Move Camera Up">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
