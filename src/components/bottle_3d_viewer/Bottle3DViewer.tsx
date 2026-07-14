@@ -1557,12 +1557,17 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             if ((child as any).texture) {
               (child as any).texture.offset.x -= 0.015;
             }
-            // Dynamic linewidth scaling based on camera zoom level (distance to controls target)
+            // Dynamic linewidth and resolution scaling based on camera zoom level
             const mat = (child as any).material;
-            if (mat && mat.linewidth !== undefined) {
-              const dist = camera.position.distanceTo(controls.target);
-              const factor = Math.max(0.15, Math.min(2.5, dist / 500));
-              mat.linewidth = 7.0 * factor; // Base linewidth 7.0 * zoom factor
+            if (mat) {
+              if (mat.linewidth !== undefined) {
+                const dist = camera.position.distanceTo(controls.target);
+                const factor = Math.max(0.15, Math.min(2.5, dist / 500));
+                mat.linewidth = 7.0 * factor; // Base linewidth 7.0 * zoom factor
+              }
+              if (mat.resolution !== undefined) {
+                mat.resolution.set(renderer.domElement.clientWidth || 800, renderer.domElement.clientHeight || 600);
+              }
             }
           }
         });
@@ -2575,7 +2580,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         const c2 = getNodeCoordinates(routeResult.path[i+1]);
         totalLength += Math.hypot(c1.x - c2.x, c1.y - c2.y);
       }
-      texture.repeat.set(Math.max(1, totalLength / 15), 1); // 1 arrow every 15 units
+      texture.repeat.set(Math.max(1, totalLength / 45), 1); // 1 arrow every 45 units (matching 2D map spacing)
 
       const container = mountRef.current;
       const material = new LineMaterial({
@@ -2585,7 +2590,10 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         linewidth: 7, // Highly visible
         transparent: true,
         opacity: 0.95,
-        resolution: new THREE.Vector2(container ? container.clientWidth : 800, container ? container.clientHeight : 600)
+        resolution: new THREE.Vector2(
+          container && container.clientWidth > 10 ? container.clientWidth : window.innerWidth,
+          container && container.clientHeight > 10 ? container.clientHeight : window.innerHeight
+        )
       });
 
       const line = new Line2(geometry, material);
