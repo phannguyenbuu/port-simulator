@@ -795,6 +795,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const wayfindingGroupRef = useRef<THREE.Group | null>(null);
   const obstaclesGroupRef = useRef<THREE.Group | null>(null);
   const pinObjRef = useRef<THREE.Group | null>(null);
+  const stopObjRef = useRef<THREE.Group | null>(null);
   const previewPinRef = useRef<THREE.Group | null>(null);
   const hoverSegmentLineRef = useRef<THREE.Line | null>(null);
   const truckMeshRef = useRef<THREE.Group | null>(null);
@@ -1202,11 +1203,12 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     Promise.all([
       loadModel('/asset/general.obj'),
       loadModelWithMtl('/asset/truck.obj', '/asset/truck.mtl'),
+      loadModel('/asset/pin.obj'),
       loadModel('/asset/stop.obj'),
       import('three/examples/jsm/lines/Line2.js'),
       import('three/examples/jsm/lines/LineGeometry.js'),
       import('three/examples/jsm/lines/LineMaterial.js')
-    ]).then(([loadedGeneralObj, truckObj, pinObj, line2Module, geometryModule, materialModule]) => {
+    ]).then(([loadedGeneralObj, truckObj, pinObj, stopObj, line2Module, geometryModule, materialModule]) => {
       generalObj = loadedGeneralObj;
       const { Line2 } = line2Module;
       const { LineGeometry } = geometryModule;
@@ -1362,10 +1364,11 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       mainGroup.add(obstaclesGroup);
       obstaclesGroupRef.current = obstaclesGroup;
       pinObjRef.current = pinObj;
+      stopObjRef.current = stopObj;
 
       // Initialize transparent red hover preview pin snapped to road
-      if (pinObj) {
-        const previewPin = pinObj.clone();
+      if (stopObj) {
+        const previewPin = stopObj.clone();
         previewPin.scale.set(1.5, 1.5, 1.5);
         previewPin.traverse((child) => {
           if (child instanceof THREE.Mesh) {
@@ -2582,8 +2585,8 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   // Synchronize custom obstacles in 3D scene
   useEffect(() => {
     const obstaclesGroup = obstaclesGroupRef.current;
-    const pinObj = pinObjRef.current;
-    if (!obstaclesGroup || !pinObj) return;
+    const stopObj = stopObjRef.current;
+    if (!obstaclesGroup || !stopObj) return;
 
     // Clear existing children
     while (obstaclesGroup.children.length > 0) {
@@ -2600,7 +2603,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     // Render new custom obstacles
     customObstacles.forEach(obs => {
-      const pinClone = pinObj.clone();
+      const pinClone = stopObj.clone();
       pinClone.scale.set(1.5, 1.5, 1.5); // Set scale to 1.5x
       
       applyStopSignMaterials(pinClone, obs.id === selectedObstacleId, false);
