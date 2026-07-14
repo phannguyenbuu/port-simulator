@@ -727,6 +727,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const [autoRotateSpeed, setAutoRotateSpeed] = useState<number>(0);
   const [showWireframe, setShowWireframe] = useState<boolean>(false);
   const [loadingProgress, setLoadingProgress] = useState<number>(-1);
+  const [is3DReady, setIs3DReady] = useState<boolean>(false);
   const [fps, setFps] = useState<number>(60);
   const [isControlPanelCollapsed, setIsControlPanelCollapsed] = useState<boolean>(false);
   const [isMobileCollapsed, setIsMobileCollapsed] = useState<boolean>(false);
@@ -1417,6 +1418,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       sceneBoundingBoxStr = `<br/>BOX: MIN(${bbox.min.x.toFixed(2)}, ${bbox.min.y.toFixed(2)}, ${bbox.min.z.toFixed(2)}) MAX(${bbox.max.x.toFixed(2)}, ${bbox.max.y.toFixed(2)}, ${bbox.max.z.toFixed(2)})<br/>SIZE: W:${(bbox.max.x - bbox.min.x).toFixed(2)} H:${(bbox.max.y - bbox.min.y).toFixed(2)} D:${(bbox.max.z - bbox.min.z).toFixed(2)}<br/>TOTAL 3D OBJECTS LOADED: ${loadedObjectsCount}`;
       
       setLoadingProgress(-1); // Finished
+      setIs3DReady(true);
     }).catch((err) => {
       console.error('Failed to load assets', err);
       setLoadingProgress(-2); // Error
@@ -2555,7 +2557,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     (mesh as any).texture = texture;
 
     return () => {};
-  }, [routeResult, getNodeCoordinates]);
+  }, [routeResult, getNodeCoordinates, is3DReady]);
 
   // Synchronize custom obstacles in 3D scene
   useEffect(() => {
@@ -2589,7 +2591,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
       obstaclesGroup.add(pinClone);
     });
-  }, [customObstacles, selectedObstacleId]);
+  }, [customObstacles, selectedObstacleId, is3DReady]);
 
   // Vehicle coordinate & angle interpolation for Screen 2 GPS Map simulation
   const vehiclePosition = useMemo(() => {
