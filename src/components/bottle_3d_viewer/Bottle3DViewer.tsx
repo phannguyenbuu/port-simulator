@@ -1552,25 +1552,12 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       }
 
 
-       // Animate and scale wayfinding Line2 paths
+       // Animate wayfinding texture offset
       if (wayfindingGroupRef.current) {
         wayfindingGroupRef.current.children.forEach(child => {
           if (child && (child as any).isWayfinding) {
-            // Animate texture offset
             if ((child as any).texture) {
               (child as any).texture.offset.x -= 0.015;
-            }
-            // Dynamic linewidth and resolution scaling based on camera zoom level
-            const mat = (child as any).material;
-            if (mat) {
-              if (mat.linewidth !== undefined) {
-                const dist = camera.position.distanceTo(controls.target);
-                const factor = Math.max(0.15, Math.min(2.5, dist / 500));
-                mat.linewidth = 7.0 * factor; // Base linewidth 7.0 * zoom factor
-              }
-              if (mat.resolution !== undefined) {
-                mat.resolution.set(renderer.domElement.clientWidth || 800, renderer.domElement.clientHeight || 600);
-              }
             }
           }
         });
@@ -2528,15 +2515,43 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     if (!routeResult || routeResult.path.length < 2) return;
 
-    const pointsCoords: number[] = [];
+    class LinearPathCurve extends THREE.Curve<THREE.Vector3> {
+      points: THREE.Vector3[];
+      constructor(points: THREE.Vector3[]) {
+        super();
+        this.points = points;
+      }
+      getPoint(t: number, optionalTarget = new THREE.Vector3()) {
+        const point = optionalTarget;
+        if (this.points.length === 0) return point;
+        if (this.points.length === 1) return point.copy(this.points[0]);
+        
+        const totalSegments = this.points.length - 1;
+        const scaledT = t * totalSegments;
+        const index = Math.floor(scaledT);
+        const segmentT = scaledT - index;
+        
+        if (index >= totalSegments) {
+          return point.copy(this.points[totalSegments]);
+        }
+        
+        const p1 = this.points[index];
+        const p2 = this.points[index + 1];
+        point.lerpVectors(p1, p2, segmentT);
+        return point;
+      }
+    }
+
+    const threePoints: THREE.Vector3[] = [];
     routeResult.path.forEach(nodeId => {
       const coords = getNodeCoordinates(nodeId);
-      // Translate 2D map to 3D scene: X -> Z, Y -> X (matching road rendering). Y = 0.5 to prevent z-fighting
-      pointsCoords.push(coords.y, 0.5, coords.x);
+      // Raise slightly above the ground (Y = 0.15) to prevent z-fighting
+      threePoints.push(new THREE.Vector3(coords.y, 0.15, coords.x));
     });
 
-    const geometry = new LineGeometry();
-    geometry.setPositions(pointsCoords);
+    const curve = new LinearPathCurve(threePoints);
+    // Tube radius = 0.8 (creates a clean 1.6m wide path)
+    const geometry = new THREE.TubeGeometry(curve, 128, 0.8, 8, false);
 
     // Create arrow pattern texture using HTML canvas
     const canvas = document.createElement('canvas');
@@ -2571,27 +2586,21 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     }
     texture.repeat.set(Math.max(1, totalLength / 45), 1); // 1 arrow every 45 units (matching 2D map spacing)
 
-    const container = mountRef.current;
-    const material = new LineMaterial({
+    const material = new THREE.MeshBasicMaterial({
       color: 0xf97316, // Orange animated path
       map: texture,
-      useMap: true,
-      linewidth: 7, // Highly visible
       transparent: true,
       opacity: 0.95,
-      resolution: new THREE.Vector2(
-        container && container.clientWidth > 10 ? container.clientWidth : window.innerWidth,
-        container && container.clientHeight > 10 ? container.clientHeight : window.innerHeight
-      )
+      side: THREE.DoubleSide
     });
 
-    const line = new Line2(geometry, material);
-    line.computeLineDistances();
-    wayfindingGroup.add(line);
+    const mesh = new THREE.Mesh(geometry, material);
+    // Flatten the tube vertically (Y-scale = 0.05) to make it a flat ribbon
+    mesh.scale.set(1.0, 0.05, 1.0);
+    wayfindingGroup.add(mesh);
 
-    (line as any).isWayfinding = true;
-    (line as any).isLine2 = true;
-    (line as any).texture = texture;
+    (mesh as any).isWayfinding = true;
+    (mesh as any).texture = texture;
 
     return () => {};
   }, [routeResult, getNodeCoordinates, is3DReady]);
