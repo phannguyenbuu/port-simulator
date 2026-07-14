@@ -3854,7 +3854,18 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontSize: '11px', color: '#94a3b8' }}>ETA:</span>
                       <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#f8fafc' }}>
-                        🕒 {routeResult ? Math.max(1, Math.round(routeResult.distance / 45)) + ' min' : '---'}
+                      🕒 {(() => {
+                        if (!routeResult) return '---';
+                        const speedMps = navSpeed * 0.27778; // Convert km/h to m/s
+                        if (speedMps <= 0) return '---';
+                        const durationSeconds = routeResult.distance / speedMps;
+                        const minutes = Math.floor(durationSeconds / 60);
+                        const seconds = Math.round(durationSeconds % 60);
+                        if (minutes === 0) {
+                          return `${seconds} sec`;
+                        }
+                        return `${minutes} min ${seconds} sec`;
+                      })()}
                       </span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
