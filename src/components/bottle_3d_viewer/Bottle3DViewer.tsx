@@ -1112,7 +1112,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     controls.addEventListener('start', cancelTransition);
     controls.minDistance = 100.0;
     controls.maxDistance = 4000.0;
-    controls.maxPolarAngle = Math.PI / 2 + 0.1; // Limit below ground plane
+    controls.maxPolarAngle = Math.PI / 2 - 0.05; // Prevent camera from going below the ground plane
 
     // 4. Generate Environmental reflection cube map
     const envMap = generateProceduralEnvMap();
