@@ -1518,14 +1518,21 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         });
       }
 
-      // Dynamic gate pin and label scaling based on camera distance (zoom level)
+      // Dynamic gate pin, custom obstacles, and label scaling based on camera distance (zoom level)
       if (bottleMesh) {
         bottleMesh.traverse((child) => {
-          if (child.userData && child.userData.isGatePin) {
-            const dist = camera.position.distanceTo(child.position);
-            const factor = Math.max(0.15, Math.min(2.5, dist / 500));
-            const targetPinScale = 1.0 * factor;
-            child.scale.set(targetPinScale, targetPinScale, targetPinScale);
+          if (child.userData) {
+            if (child.userData.isGatePin) {
+              const dist = camera.position.distanceTo(child.position);
+              const factor = Math.max(0.15, Math.min(2.5, dist / 500));
+              const targetPinScale = 1.0 * factor;
+              child.scale.set(targetPinScale, targetPinScale, targetPinScale);
+            } else if (child.userData.obstacleId) {
+              const dist = camera.position.distanceTo(child.position);
+              const factor = Math.max(0.15, Math.min(2.5, dist / 500));
+              const targetPinScale = 1.5 * factor; // Base scale 1.5x * zoom factor
+              child.scale.set(targetPinScale, targetPinScale, targetPinScale);
+            }
           }
         });
       }
