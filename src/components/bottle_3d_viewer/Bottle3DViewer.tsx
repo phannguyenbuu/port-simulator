@@ -106,7 +106,7 @@ function findShortestPath(
     projections[p.id] = [];
   });
 
-  const gateProjNodes: Record<string, string> = {}; // gateId -> projNodeId
+  const gateProjConnections: { gateId: string; projNodeId: string; x: number; y: number }[] = [];
   const projCoords: Record<string, { x: number; y: number }> = {};
 
   // Construct projections for custom obstacles
@@ -128,12 +128,12 @@ function findShortestPath(
 
   Object.keys(nodes).forEach(gateId => {
     const G = nodes[gateId];
-    let bestDist = Infinity;
-    let bestPathId = '';
-    let bestSegIndex = -1;
-    let bestT = 0;
-    let bestProjX = 0;
-    let bestProjY = 0;
+    
+    // Track the absolute closest projection to guarantee at least one connection
+    let absoluteBest = { dist: Infinity, pathId: '', segIndex: -1, t: 0, x: 0, y: 0 };
+    
+    // Store candidate projections for all paths
+    const candidates: { pathId: string; segIndex: number; t: number; x: number; y: number; dist: number }[] = [];
 
     paths.forEach(p => {
       const seq = pathBaseSequences[p.id];
@@ -143,6 +143,12 @@ function findShortestPath(
       if (p.from === gateId || p.to === gateId) {
         return;
       }
+
+      let bestPathDist = Infinity;
+      let bestPathSegIndex = -1;
+      let bestPathT = 0;
+      let bestPathProjX = 0;
+      let bestPathProjY = 0;
 
       for (let i = 0; i < seq.length - 1; i++) {
         const u = seq[i];
@@ -161,31 +167,59 @@ function findShortestPath(
         const py = u.y + t * dy;
         const dist = Math.hypot(G.x - px, G.y - py);
 
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestPathId = p.id;
-          bestSegIndex = i;
-          bestT = t;
-          bestProjX = px;
-          bestProjY = py;
+        if (dist < bestPathDist) {
+          bestPathDist = dist;
+          bestPathSegIndex = i;
+          bestPathT = t;
+          bestPathProjX = px;
+          bestPathProjY = py;
+        }
+      }
+
+      if (bestPathSegIndex !== -1) {
+        const cand = {
+          pathId: p.id,
+          segIndex: bestPathSegIndex,
+          t: bestPathT,
+          x: bestPathProjX,
+          y: bestPathProjY,
+          dist: bestPathDist
+        };
+        candidates.push(cand);
+        if (bestPathDist < absoluteBest.dist) {
+          absoluteBest = cand;
         }
       }
     });
 
-    // If G is not an endpoint of any path and we found a closest segment
-    // and the distance is > 0.1, we project G onto it
-    if (bestPathId) {
-      const projNodeId = `${bestPathId}_proj_${gateId}`;
-      projections[bestPathId].push({
-        gateId,
-        segIndex: bestSegIndex,
-        t: bestT,
-        x: bestProjX,
-        y: bestProjY
-      });
-      gateProjNodes[gateId] = projNodeId;
-      projCoords[projNodeId] = { x: bestProjX, y: bestProjY };
-    }
+    // Project onto paths that are either the absolute closest or close enough (< 40m)
+    const projectedPathIds = new Set<string>();
+    candidates.forEach(proj => {
+      const isAbsoluteBest = (proj.pathId === absoluteBest.pathId);
+      const isCloseEnough = (proj.dist < 40.0);
+
+      if ((isAbsoluteBest || isCloseEnough) && !projectedPathIds.has(proj.pathId)) {
+        projectedPathIds.add(proj.pathId);
+        const projNodeId = `${proj.pathId}_proj_${gateId}`;
+        
+        projections[proj.pathId].push({
+          gateId,
+          segIndex: proj.segIndex,
+          t: proj.t,
+          x: proj.x,
+          y: proj.y
+        });
+        
+        gateProjConnections.push({
+          gateId,
+          projNodeId,
+          x: proj.x,
+          y: proj.y
+        });
+        
+        projCoords[projNodeId] = { x: proj.x, y: proj.y };
+      }
+    });
   });
 
   // 2. Build final segmented sequences for each path
@@ -308,12 +342,10 @@ function findShortestPath(
   });
 
   // Add connections from gates to their projected road nodes
-  Object.keys(gateProjNodes).forEach(gateId => {
-    const projNodeId = gateProjNodes[gateId];
-    const coords = projCoords[projNodeId];
-    addVertex(projNodeId, coords.x, coords.y);
-    const w = Math.hypot(nodes[gateId].x - coords.x, nodes[gateId].y - coords.y);
-    addEdge(gateId, projNodeId, w);
+  gateProjConnections.forEach(conn => {
+    addVertex(conn.projNodeId, conn.x, conn.y);
+    const w = Math.hypot(nodes[conn.gateId].x - conn.x, nodes[conn.gateId].y - conn.y);
+    addEdge(conn.gateId, conn.projNodeId, w);
   });
 
   // Add edges from paths
