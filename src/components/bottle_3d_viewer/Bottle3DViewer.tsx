@@ -562,6 +562,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const mountRef = useRef<HTMLDivElement>(null);
   const [customObstacles, setCustomObstacles] = useState<CustomObstacle[]>([]);
   const [selectedObstacleId, setSelectedObstacleId] = useState<string | null>(null);
+  const [hoveredObstacleForDelete, setHoveredObstacleForDelete] = useState<{ id: string; x: number; y: number } | null>(null);
 
   const [nodes, setNodes] = useState<Record<string, PortNode>>(routeData.nodes as any);
   const DEFAULT_NODES = routeData.nodes as any;
@@ -1754,13 +1755,13 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     };
 
     handlePointerMove = (e: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
       if (draggedObstacleId) {
         // Dragging mode
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-        raycaster.setFromCamera(mouse, camera);
         const intersects = raycaster.intersectObject(generalObj, true);
         if (intersects.length > 0) {
           const pt = intersects[0].point;
@@ -1792,13 +1793,71 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         if (hoverSegmentLineRef.current) {
           hoverSegmentLineRef.current.visible = false;
         }
-      } else if (stateRef.current.activeTool === 'obstacle') {
-        // Hover preview mode when activeTool is obstacle
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        return;
+      }
 
-        raycaster.setFromCamera(mouse, camera);
+      // Check if hovering over any existing ghim/obstacle to show Delete trash button overlay
+      let foundGhimHover = false;
+      if (obstaclesGroupRef.current) {
+        const intersectsObs = raycaster.intersectObjects(obstaclesGroupRef.current.children, true);
+        if (intersectsObs.length > 0) {
+          let obj: THREE.Object3D | null = intersectsObs[0].object;
+          while (obj && !obj.userData.obstacleId) {
+            obj = obj.parent;
+          }
+          if (obj && obj.userData.obstacleId) {
+            const obstacleId = obj.userData.obstacleId;
+            foundGhimHover = true;
+
+            const worldPos = new THREE.Vector3();
+            obj.getWorldPosition(worldPos);
+            // Move up (12 units) to position the trash button nicely above the pin head
+            worldPos.y += 12.0;
+            worldPos.project(camera);
+
+            const relativeX = (worldPos.x * 0.5 + 0.5) * rect.width;
+            const relativeY = (-worldPos.y * 0.5 + 0.5) * rect.height;
+
+            if (stateRef.current) {
+              stateRef.current.activeHoveredObsId = obstacleId;
+              stateRef.current.activeHoveredObsProj = { x: relativeX, y: relativeY };
+            }
+
+            setHoveredObstacleForDelete({
+              id: obstacleId,
+              x: relativeX,
+              y: relativeY
+            });
+          }
+        }
+      }
+
+      if (!foundGhimHover) {
+        // If not directly on the ghim, check if we are close to the projected trash button (magnetic zone)
+        let keepDeleteBtn = false;
+        if (stateRef.current && stateRef.current.activeHoveredObsId) {
+          const mouseX = e.clientX - rect.left;
+          const mouseY = e.clientY - rect.top;
+          const proj = stateRef.current.activeHoveredObsProj;
+          if (proj) {
+            const dist = Math.hypot(mouseX - proj.x, mouseY - proj.y);
+            if (dist < 40) {
+              keepDeleteBtn = true;
+            }
+          }
+        }
+
+        if (!keepDeleteBtn) {
+          if (stateRef.current) {
+            stateRef.current.activeHoveredObsId = null;
+            stateRef.current.activeHoveredObsProj = null;
+          }
+          setHoveredObstacleForDelete(null);
+        }
+      }
+
+      // Hover preview mode when activeTool is obstacle
+      if (stateRef.current && stateRef.current.activeTool === 'obstacle') {
         const intersects = raycaster.intersectObject(generalObj, true);
         if (intersects.length > 0) {
           const pt = intersects[0].point;
@@ -3535,6 +3594,45 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
         {/* 3D Canvas Mount Point */}
         <div ref={mountRef} style={styles.canvasMount} />
+
+        {/* Hover Delete Button Overlay */}
+        {hoveredObstacleForDelete && (
+          <button
+            onClick={() => {
+              setCustomObstacles(prev => prev.filter(o => o.id !== hoveredObstacleForDelete.id));
+              setSelectedObstacleId(null);
+              setHoveredObstacleForDelete(null);
+              if (stateRef.current) {
+                stateRef.current.activeHoveredObsId = null;
+                stateRef.current.activeHoveredObsProj = null;
+              }
+            }}
+            style={{
+              position: 'absolute',
+              left: `${hoveredObstacleForDelete.x}px`,
+              top: `${hoveredObstacleForDelete.y}px`,
+              transform: 'translate(-50%, -100%)', // Center horizontally, place above pin head
+              backgroundColor: '#ef4444',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '50%',
+              width: '26px',
+              height: '26px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+              zIndex: 100,
+              pointerEvents: 'auto',
+              fontSize: '12px',
+              transition: 'all 0.1s ease',
+            }}
+            title="Delete Obstacle"
+          >
+            🗑️
+          </button>
+        )}
       </div>
 
       {/* Controller Controls Column (including mobile simulator) */}
