@@ -1199,7 +1199,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     Promise.all([
       loadModel('/asset/general.obj'),
       loadModelWithMtl('/asset/truck.obj', '/asset/truck.mtl'),
-      loadModel('/asset/pin.obj'),
+      loadModel('/asset/stop.obj'),
       import('three/examples/jsm/lines/Line2.js'),
       import('three/examples/jsm/lines/LineGeometry.js'),
       import('three/examples/jsm/lines/LineMaterial.js')
@@ -1366,10 +1366,20 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         previewPin.scale.set(1.5, 1.5, 1.5);
         previewPin.traverse((child) => {
           if (child instanceof THREE.Mesh) {
+            const meshName = child.name.toLowerCase();
+            let colorVal = 0xffffff;
+            if (meshName.includes('red')) {
+              colorVal = 0xef4444;
+            } else if (meshName.includes('white')) {
+              colorVal = 0xffffff;
+            } else {
+              colorVal = 0x888888;
+            }
             child.material = new THREE.MeshBasicMaterial({
-              color: 0xef4444,
+              color: colorVal,
               transparent: true,
-              opacity: 0.5
+              opacity: 0.5,
+              depthWrite: false
             });
           }
         });
@@ -2353,6 +2363,41 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     }
   }, [routeResult, canvasSize, fitRouteOnStage]);
 
+  // Helper to color/configure stop sign model meshes based on names (red part, white part)
+  const applyStopSignMaterials = useCallback((model: THREE.Object3D, isSelected: boolean, isPreview: boolean = false) => {
+    model.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        const meshName = child.name.toLowerCase();
+        let colorVal = 0xffffff;
+        let opacityVal = 1.0;
+        let transparentVal = false;
+        
+        if (meshName.includes('red')) {
+          // Red parts (can be selected -> purple, otherwise red)
+          colorVal = isSelected ? 0xa855f7 : 0xef4444;
+        } else if (meshName.includes('white')) {
+          // White parts
+          colorVal = 0xffffff;
+        } else {
+          // Other parts
+          colorVal = 0x888888;
+        }
+
+        if (isPreview) {
+          opacityVal = 0.5;
+          transparentVal = true;
+        }
+
+        child.material = new THREE.MeshBasicMaterial({
+          color: colorVal,
+          transparent: transparentVal,
+          opacity: opacityVal,
+          depthWrite: !isPreview
+        });
+      }
+    });
+  }, []);
+
   // Project coordinates to nearest path segment
   const projectObstacleToNearestPath = useCallback((x: number, y: number) => {
     let bestDist = Infinity;
@@ -2548,13 +2593,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       const pinClone = pinObj.clone();
       pinClone.scale.set(1.5, 1.5, 1.5); // Set scale to 1.5x
       
-      pinClone.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.material = new THREE.MeshBasicMaterial({
-            color: obs.id === selectedObstacleId ? 0xa855f7 : 0xef4444 // Selected: purple, otherwise red
-          });
-        }
-      });
+      applyStopSignMaterials(pinClone, obs.id === selectedObstacleId, false);
 
       // Position the pin snapped to the nearest road path segment according to projection
       pinClone.position.set(obs.projY, 0.0, obs.projX);
