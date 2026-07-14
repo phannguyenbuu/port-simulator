@@ -794,6 +794,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const wayfindingGroupRef = useRef<THREE.Group | null>(null);
   const obstaclesGroupRef = useRef<THREE.Group | null>(null);
   const pinObjRef = useRef<THREE.Group | null>(null);
+  const previewPinRef = useRef<THREE.Group | null>(null);
   const truckMeshRef = useRef<THREE.Group | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<any | null>(null);
@@ -1357,6 +1358,24 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       obstaclesGroupRef.current = obstaclesGroup;
       pinObjRef.current = pinObj;
 
+      // Initialize transparent red hover preview pin snapped to road
+      if (pinObj) {
+        const previewPin = pinObj.clone();
+        previewPin.scale.set(1.5, 1.5, 1.5);
+        previewPin.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.material = new THREE.MeshBasicMaterial({
+              color: 0xef4444,
+              transparent: true,
+              opacity: 0.5
+            });
+          }
+        });
+        previewPin.visible = false;
+        obstaclesGroup.add(previewPin);
+        previewPinRef.current = previewPin;
+      }
+
       mainGroup.position.y = 0.0;
       scene.add(mainGroup);
       bottleMesh = mainGroup;
@@ -1719,36 +1738,66 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     };
 
     handlePointerMove = (e: PointerEvent) => {
-      if (!draggedObstacleId) return;
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      if (draggedObstacleId) {
+        // Dragging mode
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObject(generalObj, true);
-      if (intersects.length > 0) {
-        const pt = intersects[0].point;
-        const clickX2D = pt.z;
-        const clickY2D = pt.x;
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObject(generalObj, true);
+        if (intersects.length > 0) {
+          const pt = intersects[0].point;
+          const clickX2D = pt.z;
+          const clickY2D = pt.x;
 
-        const proj = projectObstacleToNearestPath(clickX2D, clickY2D);
-        if (proj.pathId) {
-          setCustomObstacles(prev => prev.map(obs => {
-            if (obs.id === draggedObstacleId) {
-              return {
-                ...obs,
-                x: clickX2D,
-                y: clickY2D,
-                pathId: proj.pathId,
-                projX: proj.projX,
-                projY: proj.projY,
-                segIndex: proj.segIndex,
-                t: proj.t
-              };
-            }
-            return obs;
-          }));
+          const proj = projectObstacleToNearestPath(clickX2D, clickY2D);
+          if (proj.pathId) {
+            setCustomObstacles(prev => prev.map(obs => {
+              if (obs.id === draggedObstacleId) {
+                return {
+                  ...obs,
+                  x: clickX2D,
+                  y: clickY2D,
+                  pathId: proj.pathId,
+                  projX: proj.projX,
+                  projY: proj.projY,
+                  segIndex: proj.segIndex,
+                  t: proj.t
+                };
+              }
+              return obs;
+            }));
+          }
         }
+        if (previewPinRef.current) {
+          previewPinRef.current.visible = false;
+        }
+      } else if (stateRef.current.activeTool === 'obstacle') {
+        // Hover preview mode when activeTool is obstacle
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObject(generalObj, true);
+        if (intersects.length > 0) {
+          const pt = intersects[0].point;
+          const clickX2D = pt.z;
+          const clickY2D = pt.x;
+
+          const proj = projectObstacleToNearestPath(clickX2D, clickY2D);
+          if (proj.pathId && previewPinRef.current) {
+            previewPinRef.current.position.set(proj.projY, 0.0, proj.projX);
+            previewPinRef.current.visible = true;
+          } else if (previewPinRef.current) {
+            previewPinRef.current.visible = false;
+          }
+        } else if (previewPinRef.current) {
+          previewPinRef.current.visible = false;
+        }
+      } else if (previewPinRef.current) {
+        previewPinRef.current.visible = false;
       }
     };
 
@@ -1817,9 +1866,16 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       }
     };
 
+    const handlePointerLeave = () => {
+      if (previewPinRef.current) {
+        previewPinRef.current.visible = false;
+      }
+    };
+
     renderer.domElement.addEventListener('pointerdown', handlePointerDown);
     renderer.domElement.addEventListener('pointermove', handlePointerMove);
     renderer.domElement.addEventListener('pointerup', handlePointerUp);
+    renderer.domElement.addEventListener('pointerleave', handlePointerLeave);
     };
     
     const resizeObserver = new ResizeObserver(() => {
@@ -1840,6 +1896,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
         if (handlePointerDown) renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
         if (handlePointerMove) renderer.domElement.removeEventListener('pointermove', handlePointerMove);
         if (handlePointerUp) renderer.domElement.removeEventListener('pointerup', handlePointerUp);
+        if (handlePointerLeave) renderer.domElement.removeEventListener('pointerleave', handlePointerLeave);
         renderer.domElement.removeEventListener('pointerdown', cancelTransition);
         renderer.domElement.removeEventListener('wheel', cancelTransition);
       }
@@ -2505,6 +2562,10 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     stateRef.current.paths = paths;
     stateRef.current.navSpeed = navSpeed;
     stateRef.current.mobileScreen = mobileScreen;
+
+    if (activeTool !== 'obstacle' && previewPinRef.current) {
+      previewPinRef.current.visible = false;
+    }
   }, [color, roughness, metalness, transmission, activeLighting, autoRotateSpeed, showWireframe, viewportTheme, isNavigating, vehiclePosition, routeResult, cameraFollowTruck, activeTool, customObstacles, selectedObstacleId, nodes, paths, navSpeed, mobileScreen]);
 
   // Dynamic viewBox for SVG mini-map to zoom fit wayfinding path
