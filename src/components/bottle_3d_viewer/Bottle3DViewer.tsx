@@ -1666,15 +1666,9 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
             const targetZ = truckZ;
             
             if (!hasSnappedRef.current) {
-              // Zoom close, and point forward!
-              const freshVPos = getPositionAndAngleAtDistance(currentRoutePoints, currentRouteDists, navDistance);
-              const freshRad = (90 + freshVPos.angle) * Math.PI / 180;
-              const forwardX = Math.cos(freshRad);
-              const forwardZ = Math.sin(freshRad);
-              
-              const camX = targetX - forwardX * 60;
-              const camY = targetY + 45;
-              const camZ = targetZ - forwardZ * 60;
+              const camX = targetX + 72.78;
+              const camY = targetY + 40.67;
+              const camZ = targetZ - 55.22;
               
               camera.position.set(camX, camY, camZ);
               controls.target.set(targetX, targetY, targetZ);
