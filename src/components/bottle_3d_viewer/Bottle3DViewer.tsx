@@ -1426,7 +1426,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
           }
         });
         previewPin.visible = false;
-        obstaclesGroup.add(previewPin);
+        mainGroup.add(previewPin);
         previewPinRef.current = previewPin;
       }
 
