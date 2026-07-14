@@ -3,6 +3,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
+import { Line2 } from 'three/examples/jsm/lines/Line2.js';
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { Stage, Layer, Circle, Line, Text as KonvaText, Group, RegularPolygon, Image, Path } from 'react-konva';
 import { routeData } from '../../data/routeData';
 
@@ -2525,89 +2528,72 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
 
     if (!routeResult || routeResult.path.length < 2) return;
 
-    let isSubscribed = true;
-
-    // Dynamically load Line2 modules
-    Promise.all([
-      import('three/examples/jsm/lines/Line2.js'),
-      import('three/examples/jsm/lines/LineGeometry.js'),
-      import('three/examples/jsm/lines/LineMaterial.js')
-    ]).then(([line2Module, geometryModule, materialModule]) => {
-      if (!isSubscribed || !wayfindingGroupRef.current) return;
-
-      const { Line2 } = line2Module;
-      const { LineGeometry } = geometryModule;
-      const { LineMaterial } = materialModule;
-
-      const pointsCoords: number[] = [];
-      routeResult.path.forEach(nodeId => {
-        const coords = getNodeCoordinates(nodeId);
-        // Translate 2D map to 3D scene: X -> Z, Y -> X (matching road rendering). Y = 0.5 to prevent z-fighting
-        pointsCoords.push(coords.y, 0.5, coords.x);
-      });
-
-      const geometry = new LineGeometry();
-      geometry.setPositions(pointsCoords);
-
-      // Create arrow pattern texture using HTML canvas
-      const canvas = document.createElement('canvas');
-      canvas.width = 128;
-      canvas.height = 32;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = 'rgba(0,0,0,0)';
-        ctx.fillRect(0, 0, 128, 32);
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.moveTo(10, 16);
-        ctx.lineTo(80, 16);
-        ctx.lineTo(80, 6);
-        ctx.lineTo(118, 16);
-        ctx.lineTo(80, 26);
-        ctx.lineTo(80, 16);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.RepeatWrapping;
-
-      // Repeat texture based on path length
-      let totalLength = 0;
-      for (let i = 0; i < routeResult.path.length - 1; i++) {
-        const c1 = getNodeCoordinates(routeResult.path[i]);
-        const c2 = getNodeCoordinates(routeResult.path[i+1]);
-        totalLength += Math.hypot(c1.x - c2.x, c1.y - c2.y);
-      }
-      texture.repeat.set(Math.max(1, totalLength / 45), 1); // 1 arrow every 45 units (matching 2D map spacing)
-
-      const container = mountRef.current;
-      const material = new LineMaterial({
-        color: 0xf97316, // Orange animated path
-        map: texture,
-        useMap: true,
-        linewidth: 7, // Highly visible
-        transparent: true,
-        opacity: 0.95,
-        resolution: new THREE.Vector2(
-          container && container.clientWidth > 10 ? container.clientWidth : window.innerWidth,
-          container && container.clientHeight > 10 ? container.clientHeight : window.innerHeight
-        )
-      });
-
-      const line = new Line2(geometry, material);
-      line.computeLineDistances();
-      wayfindingGroup.add(line);
-
-      (line as any).isWayfinding = true;
-      (line as any).isLine2 = true;
-      (line as any).texture = texture;
+    const pointsCoords: number[] = [];
+    routeResult.path.forEach(nodeId => {
+      const coords = getNodeCoordinates(nodeId);
+      // Translate 2D map to 3D scene: X -> Z, Y -> X (matching road rendering). Y = 0.5 to prevent z-fighting
+      pointsCoords.push(coords.y, 0.5, coords.x);
     });
 
-    return () => {
-      isSubscribed = false;
-    };
+    const geometry = new LineGeometry();
+    geometry.setPositions(pointsCoords);
+
+    // Create arrow pattern texture using HTML canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = 'rgba(0,0,0,0)';
+      ctx.fillRect(0, 0, 128, 32);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(10, 16);
+      ctx.lineTo(80, 16);
+      ctx.lineTo(80, 6);
+      ctx.lineTo(118, 16);
+      ctx.lineTo(80, 26);
+      ctx.lineTo(80, 16);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    // Repeat texture based on path length
+    let totalLength = 0;
+    for (let i = 0; i < routeResult.path.length - 1; i++) {
+      const c1 = getNodeCoordinates(routeResult.path[i]);
+      const c2 = getNodeCoordinates(routeResult.path[i+1]);
+      totalLength += Math.hypot(c1.x - c2.x, c1.y - c2.y);
+    }
+    texture.repeat.set(Math.max(1, totalLength / 45), 1); // 1 arrow every 45 units (matching 2D map spacing)
+
+    const container = mountRef.current;
+    const material = new LineMaterial({
+      color: 0xf97316, // Orange animated path
+      map: texture,
+      useMap: true,
+      linewidth: 7, // Highly visible
+      transparent: true,
+      opacity: 0.95,
+      resolution: new THREE.Vector2(
+        container && container.clientWidth > 10 ? container.clientWidth : window.innerWidth,
+        container && container.clientHeight > 10 ? container.clientHeight : window.innerHeight
+      )
+    });
+
+    const line = new Line2(geometry, material);
+    line.computeLineDistances();
+    wayfindingGroup.add(line);
+
+    (line as any).isWayfinding = true;
+    (line as any).isLine2 = true;
+    (line as any).texture = texture;
+
+    return () => {};
   }, [routeResult, getNodeCoordinates, is3DReady]);
 
   // Synchronize custom obstacles in 3D scene
