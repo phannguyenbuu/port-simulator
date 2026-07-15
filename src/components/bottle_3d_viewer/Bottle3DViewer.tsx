@@ -832,6 +832,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
   const obstaclesGroupRef = useRef<THREE.Group | null>(null);
   const pinObjRef = useRef<THREE.Group | null>(null);
   const stopObjRef = useRef<THREE.Group | null>(null);
+  const arrowObjRef = useRef<THREE.Group | null>(null);
   const previewPinRef = useRef<THREE.Group | null>(null);
   const hoverSegmentLineRef = useRef<THREE.Line | null>(null);
   const truckMeshRef = useRef<THREE.Group | null>(null);
@@ -1241,10 +1242,11 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       loadModelWithMtl('/asset/truck.obj', '/asset/truck.mtl'),
       loadModel('/asset/pin.obj'),
       loadModel('/asset/stop.obj'),
+      loadModel('/asset/arrow.obj'),
       import('three/examples/jsm/lines/Line2.js'),
       import('three/examples/jsm/lines/LineGeometry.js'),
       import('three/examples/jsm/lines/LineMaterial.js')
-    ]).then(([loadedGeneralObj, truckObj, pinObj, stopObj, line2Module, geometryModule, materialModule]) => {
+    ]).then(([loadedGeneralObj, truckObj, pinObj, stopObj, arrowObj, line2Module, geometryModule, materialModule]) => {
       generalObj = loadedGeneralObj;
       const { Line2 } = line2Module;
       const { LineGeometry } = geometryModule;
@@ -1401,6 +1403,7 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
       obstaclesGroupRef.current = obstaclesGroup;
       pinObjRef.current = pinObj;
       stopObjRef.current = stopObj;
+      arrowObjRef.current = arrowObj;
 
       // Initialize transparent red hover preview pin snapped to road
       if (stopObj) {
@@ -2508,21 +2511,28 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     });
     if (!wayfindingGroup) return;
 
-    // Clear existing wayfinding line
+    // Clear existing wayfinding line/meshes recursively to prevent memory leaks
     while (wayfindingGroup.children.length > 0) {
       const child = wayfindingGroup.children[0];
-      if (child instanceof THREE.Mesh || (child as any).isLine2) {
-        child.geometry.dispose();
-        if (Array.isArray(child.material)) {
-          child.material.forEach((m: any) => m.dispose());
-        } else {
-          child.material.dispose();
+      child.traverse((subChild: any) => {
+        if (subChild.geometry) {
+          subChild.geometry.dispose();
         }
-      }
+        if (subChild.material) {
+          if (Array.isArray(subChild.material)) {
+            subChild.material.forEach((m: any) => m.dispose());
+          } else {
+            subChild.material.dispose();
+          }
+        }
+      });
       wayfindingGroup.remove(child);
     }
 
     if (!routeResult || routeResult.path.length < 2) return;
+
+    const arrowObj = arrowObjRef.current;
+    if (!arrowObj) return;
 
     // Calculate total path length
     let totalLength = 0;
@@ -2536,36 +2546,24 @@ export default function Bottle3DViewer({ hideControls = false, moldCode = 'defau
     const spacing = 45.0;
     const numArrows = Math.ceil(totalLength / spacing);
 
-    // Create single extruded arrow shape: [0,0,100], [300,0,0], [-100,0,0]
-    const shape = new THREE.Shape();
-    shape.moveTo(0, 100);
-    shape.lineTo(300, 0);
-    shape.lineTo(-100, 0);
-    shape.closePath();
-
-    const extrudeSettings = {
-      depth: 20,
-      bevelEnabled: false
-    };
-    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    // Rotate so it lies flat in X-Z and points along negative Z
-    geometry.rotateX(-Math.PI / 2);
-    // Scale down: width of 400 -> 4.0 units, length of 100 -> 1.0 unit, thickness of 20 -> 0.2 units
-    geometry.scale(0.01, 0.01, 0.01);
-
-    const material = new THREE.MeshBasicMaterial({
-      color: 0xf97316, // Orange animated arrow
-      transparent: true,
-      opacity: 0.95
-    });
-
     for (let i = 0; i < numArrows; i++) {
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.visible = false;
-      wayfindingGroup.add(mesh);
+      const clone = arrowObj.clone();
+      clone.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.material = new THREE.MeshBasicMaterial({
+            color: 0xf97316, // Orange animated arrow
+            transparent: true,
+            opacity: 0.95
+          });
+        }
+      });
+      // Scale down by 0.08 to match the lane width and looks elegant
+      clone.scale.set(0.08, 0.08, 0.08);
+      clone.visible = false;
+      wayfindingGroup.add(clone);
 
-      (mesh as any).isWayfindingArrow = true;
-      (mesh as any).arrowIndex = i;
+      (clone as any).isWayfindingArrow = true;
+      (clone as any).arrowIndex = i;
     }
 
     return () => {};
